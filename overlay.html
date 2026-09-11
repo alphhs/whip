@@ -127,9 +127,26 @@ for (let i = 0; i < WSEG - 1; i++) for (let j = 0; j < WRAD; j++) {
 whipGeo.setAttribute("position", new THREE.BufferAttribute(wPos, 3));
 whipGeo.setAttribute("normal",   new THREE.BufferAttribute(wNrm, 3));
 whipGeo.setIndex(wIdx);
+// Leather: nearly fully rough, zero metal, and the environment turned WAY down.
+// At roughness .52 in a bright IBL this read as polished plastic — a smooth tube
+// mirroring the room is what made it look metallic.
 const whipMesh = new THREE.Mesh(whipGeo, new THREE.MeshStandardMaterial({
-  color: 0x4a3020, roughness: 0.52, metalness: 0.06 }));
+  color: 0x241407, roughness: 0.96, metalness: 0.0, envMapIntensity: 0.14 }));
 whipMesh.frustumCulled = false; whipMesh.visible = false; scene.add(whipMesh);
+
+// The handle came back: a bound grip with a brass collar and a pommel, carried
+// at the butt of the lash and aimed down the first segment.
+const grip = new THREE.Group();
+{
+  const hide  = new THREE.MeshStandardMaterial({color:0x241408, roughness:0.88, metalness:0.0, envMapIntensity:0.3});
+  const brass = new THREE.MeshStandardMaterial({color:0x8d6a22, roughness:0.38, metalness:0.85, envMapIntensity:0.9});
+  const cyl=(r1,r2,h,m,y)=>{ const c=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,18),m); c.position.y=y; return c; };
+  grip.add(cyl(.030,.026,.30,hide,-.15));    // bound grip
+  grip.add(cyl(.032,.032,.022,brass,-.015)); // collar where the lash leaves
+  grip.add(cyl(.020,.026,.030,brass,-.305)); // pommel
+  for(let i=0;i<4;i++) grip.add(cyl(.0315,.0315,.012,hide,-.07-i*.055));  // binding
+}
+grip.visible=false; scene.add(grip);
 
 const _P=[], _T=new V(), _N=new V(), _B=new V(), _tmp=new V();
 VM3D.setWhip = (pts) => {
@@ -150,7 +167,9 @@ VM3D.setWhip = (pts) => {
     if (!isFinite(_N.x) || _N.lengthSq() < 1e-8) _N.set(0,0,1);
     _B.copy(_T).cross(_N).normalize();
     const t = i/(WSEG-1);
-    const rad = (10.5 * (1 - t) + 1.3) * wpp;
+    // a faint swell along the length reads as plaited hide instead of tubing
+    const braid = 1 + Math.sin(i * 2.35) * 0.075;
+    const rad = (7.4 * Math.pow(1 - t, 0.62) + 1.5) * wpp * braid;
     for (let j = 0; j < WRAD; j++) {
       const a = j/WRAD * Math.PI*2, ca = Math.cos(a), sa = Math.sin(a);
       const nx = _N.x*ca + _B.x*sa, ny = _N.y*ca + _B.y*sa, nz = _N.z*ca + _B.z*sa;
@@ -162,6 +181,12 @@ VM3D.setWhip = (pts) => {
   whipGeo.attributes.position.needsUpdate = true;
   whipGeo.attributes.normal.needsUpdate = true;
   whipMesh.visible = true;
+
+  _T.copy(_P[1]).sub(_P[0]).normalize();          // grip points down the lash
+  grip.position.copy(_P[0]);
+  grip.quaternion.setFromUnitVectors(new V(0,1,0), _T);
+  grip.scale.setScalar(Math.max(0.4, wpp * 380));
+  grip.visible = true;
   return true;
 };
 
@@ -196,7 +221,7 @@ VM3D.setBlade = (extend, colour) => {
 };
 
 VM3D.hideAll = () => {
-  whipMesh.visible = false;
+  whipMesh.visible = false; grip.visible = false;
   for (const k in VM3D.slots) {
     VM3D.slots[k].pivot.visible = false;
   }
@@ -386,7 +411,7 @@ function noise(dur,decay){ const n=Math.floor(actx.sampleRate*dur),
   b=actx.createBuffer(1,n,actx.sampleRate), d=b.getChannelData(0);
   for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,decay);
   const s=actx.createBufferSource(); s.buffer=b; return s; }
-function sfx(kind,power=1,pan=0){
+function sfx(kind,power=1,pan=0,horiz=1){
   if(!actx) return; if(actx.state==="suspended") actx.resume();
   const t=now(), P=actx.createStereoPanner(); P.pan.value=clamp(pan,-1,1);
   P.connect(actx.destination);
@@ -394,9 +419,15 @@ function sfx(kind,power=1,pan=0){
     b.frequency.setValueAtTime(f0,t); if(f1)b.frequency.exponentialRampToValueAtTime(f1,t+.15);
     if(q)b.Q.value=q; return b;};
   if(kind==="whip"&&WHIPBUF.length){
+    // four drivers, not one: speed sets pitch, the lash ANGLE sets brightness
+    // (a sideways crack is sharp, a downward one is dull), position pans it,
+    // and a little jitter keeps five samples from ever repeating audibly.
     const s=actx.createBufferSource(); s.buffer=pick(WHIPBUF);
-    s.playbackRate.value=.9+power*.35+rand(-.05,.05);
-    const lp=F("lowpass",3000+power*9000); s.connect(lp); env(lp,.9*power,.4,t).connect(P); s.start(t); return; }
+    s.playbackRate.value=.86+power*.40+horiz*.06+rand(-.055,.055);
+    const lp=F("lowpass", 2500 + horiz*6200 + power*4400 + rand(-500,500));
+    lp.Q.value=0.8;
+    s.connect(lp); env(lp, clamp(.28+power*.72,.2,1)*rand(.92,1), .26, t).connect(P);
+    s.start(t); return; }
   if(kind==="gun"){ const s=noise(.18,7), lp=F("lowpass",7000,500);
     s.connect(lp); env(lp,.85,.16,t).connect(P); s.start(t);
     const o=actx.createOscillator(); o.type="sine";
