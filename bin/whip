@@ -12,6 +12,7 @@
 #   whip -b "msg"              block that session's NEXT tool call instead
 #   whip <preset>              send a named intervention (whip presets)
 #   whip presets               list them
+#   whip report [target]       did whipping actually change anything?
 #   whip verify "<cmd>"        set this directory's verifier (runs after edits)
 #   whip verify off|status     stop it / show it
 #   whip verify examples       what is worth checking (and what is not)
@@ -146,6 +147,17 @@ EX
         echo "  agents are now denied edit access to it, and denied 'whip verify'"
         exit 0 ;;
     esac ;;
+  report)
+    # every delivered whip is already in the transcript; read back over it
+    tgt="${2-}"
+    if [ -n "$tgt" ]; then sid=$(resolve "$tgt"); else sid="${CLAUDE_CODE_SESSION_ID:-$(live | head -1 | cut -d"$US" -f1)}"; fi
+    [ -n "$sid" ] || { echo "no session (whip ls)"; exit 1; }
+    f=$(ls "$HOME"/.claude/projects/*/"$sid".jsonl 2>/dev/null | head -1)
+    [ -n "$f" ] || { echo "no transcript for ${sid:0:8}"; exit 1; }
+    echo "  $(label "$sid")  (${sid:0:8})"
+    python3 "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")/../lib/report.py" "$f" \
+      2>/dev/null || python3 "$HOME/.claude/whip/report.py" "$f"
+    exit 0 ;;
   presets)
     jq -r 'to_entries[] | "  \(.key|.+"            "|.[0:11])  \(.value.label)"' "$PRESETS"
     echo; echo "  whip cause          # or any of the above"

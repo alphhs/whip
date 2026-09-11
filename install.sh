@@ -24,6 +24,7 @@ install -m 755 "$APP_DIR/hooks/whip-verify.sh"   "$HOOK_DIR/whip-verify.sh"
 echo "==> cli -> $BIN_DIR"
 mkdir -p "$BIN_DIR" "$HOME/.claude/whip"
 install -m 644 "$APP_DIR/lib/presets.json" "$HOME/.claude/whip/presets.json"
+install -m 644 "$APP_DIR/lib/report.py"     "$HOME/.claude/whip/report.py"
 install -m 755 "$APP_DIR/bin/whip" "$BIN_DIR/whip"
 sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__APP_NAME__|$APP_NAME|g" \
     "$APP_DIR/bin/whipclaude" > "$BIN_DIR/whipclaude"

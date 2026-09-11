@@ -129,6 +129,37 @@ What a hit never says is *hurry*. See
   <img src="docs/flame.png" width="49%">
 </p>
 
+## Did it actually help?
+
+```bash
+whip report          # this session
+whip report turbo2   # another one
+```
+
+Every delivered whip is already in the session transcript as a
+`hook_additional_context` attachment with a timestamp, so this reads back over
+history — no logging, and it works on sessions that predate the feature. For
+each whip it compares the tool calls before against the ones after.
+
+It is built to be able to say no, and on the sessions here it does:
+
+```
+  58 whips delivered · comparing 6 tool calls either side
+
+  steer          n   reading before    after   effect
+  game          57             13%      15%   no measurable change (+2 pts)
+```
+
+Three sessions, 83 whips, the same answer. Worth knowing before you trust the
+thing: canned weapon slogans did not measurably move behaviour. Deliberate typed
+whips and the named interventions are barely represented in that sample, so they
+are untested rather than disproven.
+
+The measure is also narrow — it sees the read/act mix of tool calls, not whether
+a session changed its mind, narrowed scope, or asked a better question. A session
+on the receiving end reported compressing its reading under pressure in ways this
+would not catch. Treat it as one honest signal, not a verdict.
+
 ## Close the loop
 
 Generation got cheap; the loop now runs at the speed of its *verification* half.
