@@ -97,7 +97,6 @@ VM3D.request = (id) => {                      // lazy: load on first use
     m.position.sub(ct);
     m.scale.setScalar(cfg.len / Math.max(sz.x, sz.y, sz.z, 1e-6));
     slot.pivot.add(m); slot.ready = true;
-    console.log(`VM3D ${id} ready (${[sz.x,sz.y,sz.z].map(v=>v.toFixed(2)).join("x")})`);
   }, undefined, (e) => console.warn("VM3D " + id + " failed", e));
   return slot;
 };
@@ -181,7 +180,6 @@ function braidTexture(){
 // colour drawn. Vertex colours carry the falloff from worn grip to dark tip.
 const whipMesh = new THREE.Mesh(whipGeo, new THREE.MeshBasicMaterial({
   vertexColors: true, map: braidTexture() }));
-window.__whipMat = whipMesh.material; window.__whipGeo = whipGeo;
 whipMesh.frustumCulled = false; whipMesh.visible = false; scene.add(whipMesh);
 
 // The handle came back: a bound grip with a brass collar and a pommel, carried
@@ -440,7 +438,7 @@ const feed=[];
 let feedSince=0;
 window.whip.onFeed(items=>{
   for(const it of items) feed.push({...it, t:performance.now()});
-  while(feed.length>14) feed.shift();
+  while(feed.length>120) feed.shift();
 });
 const bot={x:0,y:0,hx:0,hy:0,vx:0,vy:0,ang:0,angVel:0,squash:1,flash:0,hits:0,rigid:0,
            burn:0,bubble:"",bubbleUntil:0,
@@ -549,7 +547,7 @@ function damage(x,y,vx,vy,power,opts={}){
     bot.bubble=msg; bot.bubbleUntil=t+1600;
     const s=sessions[sel];
     if(s){ window.whip.crack(s.id, intentOf(W_()), W_().name);
-           feedSince=performance.now(); feed.length=0; }
+           feedSince=performance.now(); }        // mark the moment; never clear the log
   }
 }
 const inBox=(x,y)=>Math.abs(x-bot.x)<=BOX_HW() && Math.abs(y-bot.y)<=BOX_HH();
@@ -867,7 +865,6 @@ function drawFx(){
     ctx.globalAlpha=1;
   }
 }
-const t2=()=>performance.now()*.06;
 
 // ── the bot ────────────────────────────────────────────────────────────────
 function drawBot(){
@@ -979,19 +976,19 @@ function drawFeed(){
   if(!feed.length) rows.push({txt: (sessions[sel]&&sessions[sel].busy)
       ? "working\u2026" : "nothing yet \u2014 give this session something to do",
     c:"rgba(255,255,255,.35)", t:t, say:1});
-  for(let i=feed.length-1; i>=0 && rows.length<16; i--){
+  for(let i=feed.length-1; i>=0 && rows.length<26; i--){
     const e=feed[i];
     if(e.kind==="whip"){ rows.push({txt:"\u2014 WHIP LANDED \u2014", c:"#D97757", b:1, t:e.t}); continue; }
     if(e.kind==="say"){
       ctx.font="500 12px ui-sans-serif,-apple-system,system-ui,sans-serif";
       const ls=wrapTo(e.text, PW-14);
-      for(let k=ls.length-1;k>=0 && rows.length<16;k--) rows.push({txt:ls[k], c:"#dfe3e6", t:e.t, say:1});
+      for(let k=ls.length-1;k>=0 && rows.length<26;k--) rows.push({txt:ls[k], c:"#dfe3e6", t:e.t, say:1});
       continue;
     }
     ctx.font="600 11px ui-monospace,SFMono-Regular,Menlo,monospace";
     const head=e.name+(e.subj?"  "+e.subj:"");
     const ls=wrapTo(head, PW-14);
-    for(let k=ls.length-1;k>=0 && rows.length<16;k--)
+    for(let k=ls.length-1;k>=0 && rows.length<26;k--)
       rows.push({txt:ls[k], c:(k===0?"#f0b132":"rgba(240,177,50,.6)"), t:e.t, mono:1});
   }
   const lh=16, top=bottom-rows.length*lh;
@@ -1005,7 +1002,7 @@ function drawFeed(){
   ctx.fillStyle = ss.busy ? "#5fd27a" : "rgba(240,177,50,.5)";
   ctx.fillText((ss.busy?"\u25cf LIVE \u00b7 ":"\u25cb IDLE \u00b7 ")+who, x, top-11);
   rows.reverse().forEach((r,k)=>{
-    ctx.globalAlpha=clamp(1-(t-r.t)/70000,0.3,1);
+    ctx.globalAlpha=clamp(1-(t-r.t)/240000,0.55,1);
     ctx.font = r.b ? "700 11px ui-monospace,Menlo,monospace"
              : r.mono ? "600 11px ui-monospace,SFMono-Regular,Menlo,monospace"
              : "500 12px ui-sans-serif,-apple-system,system-ui,sans-serif";

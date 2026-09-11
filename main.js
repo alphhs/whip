@@ -66,8 +66,7 @@ function createOverlay() {
       overlay.webContents.send('show', { sessions: liveSessions(), cursor: cursorInWindow(), safe: safeInset() });
       sendFocusedRect();
     }
-    if (process.env.WHIP_DEBUG) console.log('[dbg] did-finish-load; windows=' + BrowserWindow.getAllWindows().length);
-  });
+    });
   if (process.env.WHIP_DEBUG) {
     overlay.webContents.on('console-message', (_e, _lvl, msg) => console.log('[renderer] ' + msg));
   }
