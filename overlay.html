@@ -446,7 +446,7 @@ const bot={x:0,y:0,hx:0,hy:0,vx:0,vy:0,ang:0,angVel:0,squash:1,flash:0,hits:0,ri
            burn:0,bubble:"",bubbleUntil:0,
            // it runs now
            snareUntil:0, struggle:0, wx:0, wy:0, wanderT:0, panic:0, caught:0, escapes:0};
-const SNARE_MS = 2600, TETHER = 170;
+const SNARE_MS = 2600, TETHER = 300;   // how far out it is held once caught
 const fx=[];                      // every projectile / particle / effect
 function muzzle(){                      // where a projectile is born
   const id=W_().id;
@@ -591,7 +591,7 @@ function ropeHit(){ const t=performance.now(); if(t-lastCrack<200) return;
         sfx("whip",clamp(sp/42,.3,1),(x/W-.5)*1.6,horiz);
         const held = bot.snareUntil > t;
         damage(x,y,dx,dy,clamp(sp/40,.4,1)*(held?1.7:1),{col:"#e8ded0"});
-        if(!held && sp > R.hitSpeed*1.6){                    // a fast lash CATCHES it
+        if(!held && strikeAt && sp > R.hitSpeed*2.2){        // only a deliberate strike catches
           bot.snareUntil = t + SNARE_MS; bot.struggle = 0; bot.caught++;
           bot.heldFrom = t;
           { const sx=sessions[sel]; if(sx) window.whip.score({sessionId:sx.id, caught:1}); }
