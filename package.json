@@ -1,0 +1,18 @@
+{
+  "name": "whipclaude",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Steer a running Claude Code turn without interrupting it",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "install-hooks": "./install.sh"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "three": "^0.186.0"
+  },
+  "license": "MIT"
+}

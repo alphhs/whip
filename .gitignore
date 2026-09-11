@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+
+# Assets are NOT redistributable — each user supplies their own.
+# See assets/README.md for what to drop in here.
+assets/*
+!assets/README.md
+sounds/*
+!sounds/README.md

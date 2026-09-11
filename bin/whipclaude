@@ -1,0 +1,35 @@
+#!/bin/bash
+# whipclaude — the Cmd+Shift+W whip overlay (optional; hooks+CLI work without it)
+#   whipclaude start|stop|restart|status|log
+# Match on the app PATH, never a trailing arg: `electron .` and
+# `electron ~/whip` are the same app but look nothing alike in ps.
+set -euo pipefail
+APP="__APP_DIR__"
+BIN="__APP_DIR__/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+PAT="__APP_NAME__/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+mains() { { pgrep -f "$PAT" 2>/dev/null || true; } | while read -r p; do
+            ps -o command= -p "$p" | grep -q -- "--type=" || echo "$p"; done; }
+
+case "${1-status}" in
+  start)
+    n=$(mains | wc -l | tr -d ' ')
+    [ "$n" -gt 0 ] && { echo "already running (pid $(mains | head -1))"; exit 0; }
+    "$BIN" "$APP" > /tmp/whipclaude.log 2>&1 &
+    sleep 2; echo "started — Cmd+Shift+W" ;;
+  stop)
+    p=$(mains); [ -z "$p" ] && { echo "not running"; exit 0; }
+    echo "$p" | xargs kill 2>/dev/null; sleep 1
+    echo "$p" | xargs kill -9 2>/dev/null || true
+    echo "stopped ($(echo "$p" | wc -l | tr -d ' ') instance(s))" ;;
+  restart) "$0" stop >/dev/null; sleep 1; "$0" start ;;
+  status)
+    n=$(mains | wc -l | tr -d ' ')
+    case "$n" in
+      0) echo "not running — whipclaude start" ;;
+      1) echo "running (pid $(mains)) — Cmd+Shift+W" ;;
+      *) echo "WARNING: $n instances running — pids: $(mains | tr '\n' ' ')"
+         echo "  they fight over the hotkey and serve different code. run: whipclaude stop" ;;
+    esac ;;
+  log) tail -30 /tmp/whipclaude.log ;;
+  *) echo "usage: whipclaude start|stop|restart|status|log"; exit 1 ;;
+esac

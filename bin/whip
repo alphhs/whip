@@ -1,0 +1,93 @@
+#!/bin/bash
+# whip — steer a specific Claude Code instance mid-turn, without interrupting it.
+#
+#   whip "msg"            whip a session (from inside one: itself; else: most recent)
+#   whip -t 2 "msg"       whip session #2 from --list
+#   whip -a "msg"         whip every live session
+#   whip -b "msg"         hard: deny that session's next tool call
+#   whip -l               list live sessions
+#   whip -s / -c          show / clear pending whips
+set -euo pipefail
+DIR="$HOME/.claude/whip"; REG="$DIR/reg"
+mkdir -p "$DIR/s" "$DIR/b" "$REG"
+
+alive() { local pp=$1; [ -n "$pp" ] && kill -0 "$pp" 2>/dev/null; }
+
+# id<TAB>cwd<TAB>epoch, newest first, dead ones pruned
+sessions() {
+  local f id cwd ts pp
+  for f in "$REG"/*; do
+    [ -e "$f" ] || continue
+    id=$(basename "$f")
+    IFS=$'\t' read -r cwd ts pp < "$f" || continue
+    if ! alive "${pp:-}"; then rm -f "$f"; continue; fi
+    printf '%s\t%s\t%s\n' "$id" "${cwd:-?}" "${ts:-0}"
+  done | sort -t$'\t' -k3 -rn
+}
+
+MODE=s; TARGET=""; ALL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -b|--block) MODE=b; shift ;;
+    -a|--all)   ALL=1; shift ;;
+    -t|--target) TARGET="$2"; shift 2 ;;
+    -l|--list)
+      i=0; while IFS=$'\t' read -r id cwd ts; do
+        i=$((i+1)); printf '%d) %-22s %s  (%ss ago)\n' "$i" "$(basename "$cwd")" "${id:0:8}" "$(( $(date +%s) - ts ))"
+      done < <(sessions); [ $i -eq 0 ] && echo "no live Claude sessions"; exit 0 ;;
+    -s|--status)
+      n=0; for f in "$DIR"/s/* "$DIR"/b/*; do [ -e "$f" ] || continue
+        n=$((n+1)); printf '%-6s %-10s %s\n' "$(basename "$(dirname "$f")")" "$(basename "$f" | cut -c1-8)" "$(cat "$f")"; done
+      [ $n -eq 0 ] && echo "nothing pending"; exit 0 ;;
+    -p|--pet)
+      pid_arg="${2-}"; [ -n "$pid_arg" ] && shift
+      sid=""
+      if [ -n "${pid_arg:-}" ] && [[ "$pid_arg" =~ ^[0-9]+$ ]]; then
+        sid=$(sessions | sed -n "${pid_arg}p" | cut -f1)
+      else
+        sid="${CLAUDE_CODE_SESSION_ID:-$(sessions | head -1 | cut -f1)}"
+      fi
+      [ -n "$sid" ] || { echo "no session"; exit 1; }
+      python3 "$HOME/.claude/hooks/pet.py" --session "$sid" --kind greet
+      exit 0 ;;
+    -c|--clear) rm -f "$DIR"/s/* "$DIR"/b/* 2>/dev/null; echo "cleared"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) break ;;
+  esac
+done
+
+MSG="${*:-}"
+if [ -z "$MSG" ]; then
+  P=("FASTER" "Stop checking — ship it" "Enough analysis, make the change"
+     "You're overthinking this" "Simplest thing that works. Go.")
+  MSG="${P[RANDOM % ${#P[@]}]}"
+fi
+
+ids=()
+if [ "$ALL" = 1 ]; then
+  while IFS=$'\t' read -r id _ _; do ids+=("$id"); done < <(sessions)
+elif [ -n "$TARGET" ]; then
+  if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
+    ids+=("$(sessions | sed -n "${TARGET}p" | cut -f1)")
+  else
+    ids+=("$(sessions | cut -f1 | grep -m1 "^$TARGET" || true)")
+  fi
+elif [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  ids+=("$CLAUDE_CODE_SESSION_ID")          # run from inside a session: whip itself
+else
+  ids+=("$(sessions | head -1 | cut -f1)")   # else the most recently active
+fi
+
+[ "${#ids[@]}" -gt 0 ] && [ -n "${ids[0]}" ] || { echo "no target session (try: whip -l)"; exit 1; }
+for id in "${ids[@]}"; do
+  [ -n "$id" ] || continue
+  printf '%s' "$MSG" > "$DIR/$MODE/$id"
+  cwd=$(cut -f1 "$REG/$id" 2>/dev/null || echo "?")
+  printf 'whip armed%s -> %s (%s): %s\n' "$([ "$MODE" = b ] && echo ' BLOCK')" \
+    "$(basename "${cwd:-?}")" "${id:0:8}" "$MSG"
+done
+# the pet reacts here too, so you can see it even if your TUI keeps hook
+# output out of the transcript
+if [ "${#ids[@]}" -eq 1 ] && [ -n "${ids[0]}" ] && [ -t 1 ]; then
+  python3 "$HOME/.claude/hooks/pet.py" --pose "$([ "$MODE" = b ] && echo angry || echo hit)" 2>/dev/null || true
+fi

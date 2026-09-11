@@ -1,0 +1,12 @@
+#!/bin/bash
+# PostToolUse: register this session, deliver only ITS whip. Silent by design —
+# the hit is shown in the overlay, not in your terminal.
+DIR="$HOME/.claude/whip"
+PAY=$(cat); SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty')
+[ -n "$SID" ] || exit 0
+mkdir -p "$DIR/reg" "$DIR/s"
+printf '%s\t%s\t%s\n' "$(printf '%s' "$PAY" | jq -r '.cwd // empty')" "$(date +%s)" "$PPID" > "$DIR/reg/$SID"
+F="$DIR/s/$SID"; [ -f "$F" ] || exit 0
+MSG=$(cat "$F" 2>/dev/null); rm -f "$F"; [ -n "$MSG" ] || exit 0
+jq -n --arg m "$MSG" '{hookSpecificOutput:{hookEventName:"PostToolUse",
+  additionalContext:("[WHIP] The user is steering you mid-turn without interrupting. Adjust course NOW and keep going on the same task — do not restart, re-plan from scratch, or re-read what you already read. Their words: \"" + $m + "\"")}}'

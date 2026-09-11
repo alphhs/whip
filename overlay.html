@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; cursor:none; }
+  html, body { width:100%; height:100%; overflow:hidden; background:transparent; }
+  canvas { display:block; }
+</style>
+<canvas id="c"></canvas>
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js",
+               "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+<script type="module">
+// 3D weapon viewmodels. Every model has its own forward axis and resting pose,
+// so aiming is done by mapping the MODEL's basis onto a world basis that points
+// at the cursor — not by assuming the barrel is +X.
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+const V = THREE.Vector3;
+const MODELS = {
+  gun:     { file:"assets/ak47.glb",    fwd:[1,0,0], up:[0,1,0], len:1.55, aim:true,
+             pos:[0.62,-0.60,0], roll:-0.16, cant:0.10, kick:0.42 },
+  avada:   { file:"assets/wand.glb",    fwd:[0,1,0], up:[0,0,1], len:0.95, aim:true,
+             pos:[0.46,-0.50,0.2], roll:0.00, cant:0.00, kick:0.10 },
+  flame:   { file:"assets/flamer.glb",  fwd:[0,0,1], up:[0,1,0], len:1.85, aim:true,
+             pos:[0.58,-0.66,0], roll:-0.08, cant:0.06, kick:0.14 },
+  molotov: { file:"assets/molotov.glb", fwd:[0,1,0], up:[0,0,1], len:0.60, aim:false,
+             pos:[0.54,-0.62,0.1], rot:[0.22,-0.55,0.28], kick:0 },
+  saber:   { build:true, fwd:[0,1,0], up:[0,0,1], len:1, aim:true,
+             pos:[0.60,-0.62,0.25], roll:0, cant:0, kick:0.10, colour:0x33ddff },
+};
+
+const cv = document.createElement("canvas");
+const renderer = new THREE.WebGLRenderer({ canvas: cv, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.45;
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+camera.position.set(0, 0, 3);
+// PBR metal is nearly black with no environment to reflect; this is what makes
+// steel read as steel instead of dark plastic.
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 1.35;
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const key = new THREE.DirectionalLight(0xfff4e2, 3.4); key.position.set(2.5, 3, 4); scene.add(key);
+const rim = new THREE.DirectionalLight(0xbfd4ff, 0.9); rim.position.set(-3, 1.2, -2.5); scene.add(rim);
+const fil = new THREE.DirectionalLight(0xffffff, 0.8); fil.position.set(-1.5,-2, 2); scene.add(fil);
+
+const castLight = new THREE.PointLight(0x2bff6a, 0, 14, 2);
+scene.add(castLight);
+
+const VM3D = { canvas:cv, size:{w:0,h:0}, muzzle:{x:0,y:0}, slots:{} };
+window.VM3D = VM3D;
+
+// The saber is built, not loaded: a hilt from primitives plus an unlit white
+// core blade. The coloured glow is drawn on the 2D additive layer, which fades
+// rather than clears — so swinging leaves a real trail.
+function buildSaber(){
+  const g = new THREE.Group();
+  const metal = new THREE.MeshStandardMaterial({color:0x2b2f36, roughness:.32, metalness:.95});
+  const dark  = new THREE.MeshStandardMaterial({color:0x0f1114, roughness:.75, metalness:.25});
+  const gold  = new THREE.MeshStandardMaterial({color:0xb4902c, roughness:.28, metalness:1});
+  const cyl=(r1,r2,h,m,y)=>{ const c=new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,24),m);
+                             c.position.y=y; return c; };
+  g.add(cyl(.058,.058,.36,metal,0));     // body
+  g.add(cyl(.050,.050,.09,dark,.09));    // grip band
+  g.add(cyl(.050,.050,.09,dark,-.06));
+  g.add(cyl(.066,.058,.045,gold,.19));   // emitter shroud
+  g.add(cyl(.046,.046,.05,dark,-.19));   // pommel
+  const blade = new THREE.Mesh(new THREE.CylinderGeometry(.021,.014,1,18),
+                               new THREE.MeshBasicMaterial({color:0xffffff}));
+  blade.name="blade"; g.add(blade);
+  const halo = new THREE.PointLight(0x33ddff, 0, 6, 2); halo.name="halo"; g.add(halo);
+  return g;
+}
+
+const loader = new GLTFLoader();
+VM3D.request = (id) => {                      // lazy: load on first use
+  const cfg = MODELS[id]; if (!cfg) return null;
+  let slot = VM3D.slots[id];
+  if (slot) return slot;
+  if (cfg.build) {                            // procedural, ready immediately
+    slot = VM3D.slots[id] = { cfg, ready:true, pivot:new THREE.Group() };
+    slot.pivot.add(buildSaber()); slot.pivot.visible=false; scene.add(slot.pivot);
+    return slot;
+  }
+  slot = VM3D.slots[id] = { cfg, ready:false, pivot:new THREE.Group() };
+  slot.pivot.visible = false; scene.add(slot.pivot);
+  loader.load(cfg.file, (g) => {
+    const m = g.scene, box = new THREE.Box3().setFromObject(m);
+    const sz = box.getSize(new V()), ct = box.getCenter(new V());
+    m.position.sub(ct);
+    m.scale.setScalar(cfg.len / Math.max(sz.x, sz.y, sz.z, 1e-6));
+    slot.pivot.add(m); slot.ready = true;
+    console.log(`VM3D ${id} ready (${[sz.x,sz.y,sz.z].map(v=>v.toFixed(2)).join("x")})`);
+  }, undefined, (e) => console.warn("VM3D " + id + " failed", e));
+  return slot;
+};
+
+VM3D.resize = (w, h) => {
+  if (VM3D.size.w === w && VM3D.size.h === h) return;
+  VM3D.size = { w, h }; renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+};
+
+const _ndc=new V(), _aim=new V(), _F=new V(), _U=new V(), _S=new V();
+const _f=new V(), _u=new V(), _sv=new V(), _tip=new V();
+const _Mw=new THREE.Matrix4(), _Mm=new THREE.Matrix4(), _R=new THREE.Matrix4();
+const WORLD_UP=new V(0,1,0);
+
+// ── whip as real geometry ──────────────────────────────────────────────────
+// A tapered tube rebuilt from the 2D rope each frame, lit by the same IBL as the
+// weapons. Parallel-transport frames keep it from twisting along its length.
+const WSEG = 26, WRAD = 8;
+const whipGeo = new THREE.BufferGeometry();
+const wPos = new Float32Array(WSEG * WRAD * 3), wNrm = new Float32Array(WSEG * WRAD * 3);
+const wIdx = [];
+for (let i = 0; i < WSEG - 1; i++) for (let j = 0; j < WRAD; j++) {
+  const a = i*WRAD + j, b = i*WRAD + (j+1)%WRAD, c = (i+1)*WRAD + j, d2 = (i+1)*WRAD + (j+1)%WRAD;
+  wIdx.push(a, c, b, b, c, d2);
+}
+whipGeo.setAttribute("position", new THREE.BufferAttribute(wPos, 3));
+whipGeo.setAttribute("normal",   new THREE.BufferAttribute(wNrm, 3));
+whipGeo.setIndex(wIdx);
+const whipMesh = new THREE.Mesh(whipGeo, new THREE.MeshStandardMaterial({
+  color: 0x4a3020, roughness: 0.52, metalness: 0.06 }));
+whipMesh.frustumCulled = false; whipMesh.visible = false; scene.add(whipMesh);
+
+const _P=[], _T=new V(), _N=new V(), _B=new V(), _tmp=new V();
+VM3D.setWhip = (pts) => {
+  if (!VM3D.size.w || pts.length < 3) return false;
+  const depth = 3.1;
+  const wpp = (2 * depth * Math.tan((camera.fov*Math.PI/180)/2)) / VM3D.size.h;
+  for (let i = 0; i < WSEG; i++) {
+    const k = i/(WSEG-1), src = pts[Math.min(pts.length-1, Math.round(k*(pts.length-1)))];
+    _ndc.set((src.x/VM3D.size.w)*2-1, -(src.y/VM3D.size.h)*2+1, 0.5).unproject(camera);
+    _P[i] = (_P[i] || new V()).copy(_ndc).sub(camera.position).normalize()
+              .multiplyScalar(depth).add(camera.position);
+  }
+  _N.set(0,0,1);
+  for (let i = 0; i < WSEG; i++) {
+    _T.copy(_P[Math.min(i+1,WSEG-1)]).sub(_P[Math.max(i-1,0)]).normalize();
+    if (!isFinite(_T.x) || _T.lengthSq() < 1e-8) _T.set(1,0,0);
+    _N.sub(_tmp.copy(_T).multiplyScalar(_N.dot(_T))).normalize();
+    if (!isFinite(_N.x) || _N.lengthSq() < 1e-8) _N.set(0,0,1);
+    _B.copy(_T).cross(_N).normalize();
+    const t = i/(WSEG-1);
+    const rad = (10.5 * (1 - t) + 1.3) * wpp;
+    for (let j = 0; j < WRAD; j++) {
+      const a = j/WRAD * Math.PI*2, ca = Math.cos(a), sa = Math.sin(a);
+      const nx = _N.x*ca + _B.x*sa, ny = _N.y*ca + _B.y*sa, nz = _N.z*ca + _B.z*sa;
+      const o = (i*WRAD + j)*3;
+      wPos[o] = _P[i].x + nx*rad; wPos[o+1] = _P[i].y + ny*rad; wPos[o+2] = _P[i].z + nz*rad;
+      wNrm[o] = nx; wNrm[o+1] = ny; wNrm[o+2] = nz;
+    }
+  }
+  whipGeo.attributes.position.needsUpdate = true;
+  whipGeo.attributes.normal.needsUpdate = true;
+  whipMesh.visible = true;
+  return true;
+};
+
+// Green light at the wand tip during the incantation, so the model is lit by
+// the curse rather than just having a sprite drawn over it.
+VM3D.setCastGlow = (intensity, sx, sy) => {
+  castLight.intensity = intensity * 26;
+  if (!intensity || !VM3D.size.w) return;
+  _ndc.set((sx/VM3D.size.w)*2-1, -(sy/VM3D.size.h)*2+1, 0.5).unproject(camera);
+  castLight.position.copy(_ndc).sub(camera.position).normalize()
+           .multiplyScalar(3.0).add(camera.position);
+};
+
+VM3D.saber = { bx:0, by:0, tx:0, ty:0, on:0 };
+const _bt = new V();
+VM3D.setBlade = (extend, colour) => {
+  const slot = VM3D.slots.saber; if (!slot) return;
+  const blade = slot.pivot.getObjectByName("blade");
+  const halo  = slot.pivot.getObjectByName("halo");
+  const L = Math.max(0.001, extend) * 1.35;
+  blade.scale.set(1, L, 1);
+  blade.position.y = 0.21 + L/2;
+  blade.visible = extend > 0.01;
+  halo.color.setHex(colour); halo.intensity = extend * 9; halo.position.y = 0.21 + L/2;
+  slot.pivot.updateMatrixWorld(true); camera.updateMatrixWorld();
+  const put = (localY, key) => {
+    _bt.set(0, localY, 0); slot.pivot.localToWorld(_bt); _bt.project(camera);
+    VM3D.saber[key+"x"] = (_bt.x*0.5+0.5)*VM3D.size.w;
+    VM3D.saber[key+"y"] = (-_bt.y*0.5+0.5)*VM3D.size.h;
+  };
+  put(0.21, "b"); put(0.21 + L, "t"); VM3D.saber.on = extend;
+};
+
+VM3D.hideAll = () => {
+  whipMesh.visible = false;
+  for (const k in VM3D.slots) {
+    VM3D.slots[k].pivot.visible = false;
+  }
+};
+VM3D.draw = () => { renderer.render(scene, camera); };
+
+VM3D.place = (id, sx, sy, depth, spin) => {
+  const slot = VM3D.request(id);
+  if (!slot || !slot.ready || !VM3D.size.w) return false;
+  slot.pivot.visible = true;
+  const piv = slot.pivot;
+  _ndc.set((sx/VM3D.size.w)*2-1, -(sy/VM3D.size.h)*2+1, 0.5).unproject(camera);
+  _aim.copy(_ndc).sub(camera.position).normalize().multiplyScalar(depth).add(camera.position);
+  piv.position.copy(_aim);
+  piv.rotation.set(0.25, 0.4, spin);                   // end over end on one axis
+  return true;
+};
+
+VM3D.render = (id, recoil, swayX, swayY, curX, curY) => {
+  const slot = VM3D.request(id);
+  if (!slot || !slot.ready || !VM3D.size.w) return false;
+  slot.pivot.visible = true;
+  const cfg = slot.cfg, piv = slot.pivot;
+
+  piv.position.set(cfg.pos[0] - swayX*0.0016,
+                   cfg.pos[1] - swayY*0.0016 - recoil*0.10,
+                   cfg.pos[2] + recoil*0.24);
+
+  if (cfg.aim) {
+    _ndc.set((curX/VM3D.size.w)*2-1, -(curY/VM3D.size.h)*2+1, 0.5).unproject(camera);
+    _aim.copy(_ndc).sub(camera.position).normalize().multiplyScalar(7).add(camera.position);
+    _F.copy(_aim).sub(piv.position).normalize();          // where it should point
+    _S.copy(_F).cross(WORLD_UP).normalize();
+    _U.copy(_S).cross(_F).normalize();
+    _Mw.makeBasis(_F, _U, _S);
+    _f.fromArray(cfg.fwd).normalize();                     // where the MODEL points
+    _u.fromArray(cfg.up).normalize();
+    _sv.copy(_f).cross(_u).normalize();
+    _u.copy(_sv).cross(_f).normalize();
+    _Mm.makeBasis(_f, _u, _sv);
+    _R.copy(_Mw).multiply(_Mm.transpose());                // orthonormal: transpose == inverse
+    piv.quaternion.setFromRotationMatrix(_R);
+    piv.rotateZ(cfg.roll - recoil*cfg.kick);
+    piv.rotateX(cfg.cant);
+  } else {
+    piv.rotation.fromArray(cfg.rot);
+  }
+
+  camera.updateMatrixWorld(); piv.updateMatrixWorld(true);
+
+  const d = 1;                                             // project the tip for muzzle fx
+  _tip.fromArray(cfg.fwd).normalize().multiplyScalar(cfg.len * 0.5 * d);
+  piv.localToWorld(_tip); _tip.project(camera);
+  VM3D.muzzle.x = (_tip.x*0.5+0.5) * VM3D.size.w;
+  VM3D.muzzle.y = (-_tip.y*0.5+0.5) * VM3D.size.h;
+  return true;
+};
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Target: the Claude Code mark, standing in for one specific session.
+// ═══════════════════════════════════════════════════════════════════════════
+const CLAUDE_PATH = new Path2D(
+  "M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20" +
+  "H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488" +
+  "V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z");
+const ORANGE = "#D97757", ICON_CX = 12, ICON_CY = 12.5, ICON_SCALE = 9;
+const BOX_HW = () => ICON_SCALE * 12 + 30, BOX_HH = () => ICON_SCALE * 7.5 + 30;
+
+// CS-style slots: pick with 1-7, scroll, or auto-switch when you run dry.
+// mag = rounds in a magazine, res = reserve, rl = reload seconds, rof = ms between shots
+const WEAPONS = [
+  { id:"whip",    name:"WHIP",          short:"whip",    col:"#c9a227", mode:"click", mag:Infinity, res:Infinity, rl:0,   rof:260,
+    msg:["FASTER","Speed it up","Stop dawdling"] },
+  { id:"saber",   name:"LIGHTSABER",   short:"saber",   col:"#33ddff", mode:"melee", mag:Infinity, res:Infinity, rl:0, rof:130,
+    msg:["Cut it down","Slice through it","No wasted motion"] },
+  { id:"gun",     name:"AK-47",         short:"ak47",    col:"#dfe3e6", mode:"auto",  mag:30,  res:90,  rl:2.4, rof:95,
+    msg:["Stop checking — ship it","One shot, done","Enough. Commit."] },
+  { id:"flame",   name:"FLAMETHROWER",  short:"flame",   col:"#ff7a18", mode:"hold",  mag:100, res:200, rl:3.0, rof:16,
+    msg:["BURN THROUGH IT","Torch the slow path","Scorch it"] },
+  { id:"avada",   name:"AVADA KEDAVRA", short:"avada",   col:"#2bff6a", mode:"click", mag:1,   res:11,  rl:1.4, rof:900,
+    msg:["Kill that approach","Abandon it. Other way.","Finish it"] },
+  { id:"molotov", name:"MOLOTOV",       short:"molly",   col:"#ff4a1a", mode:"click", mag:1,   res:5,   rl:1.0, rof:700,
+    msg:["Scrap it and start clean","Torch this, restart","Burn it down"] },
+];
+const ammo = WEAPONS.map(w => ({ mag:w.mag, res:w.res }));
+let reloadUntil = 0, lastShot = 0, hudUntil = 0;
+
+function reload(){
+  const w=W_(), A=ammo[weapon];
+  if(w.mag===Infinity || A.mag>=w.mag || A.res<=0 || reloadUntil>performance.now()) return;
+  reloadUntil = performance.now() + w.rl*1000;
+  setTimeout(()=>{ const need=w.mag-A.mag, take=Math.min(need,A.res);
+    A.mag+=take; A.res-=take; hudUntil=performance.now()+2200; }, w.rl*1000);
+}
+function canFire(){
+  const t=performance.now();
+  if(casting) return false;
+  if(t<reloadUntil) return false;
+  if(t-lastShot < W_().rof) return false;
+  if(ammo[weapon].mag<=0){ reload(); return false; }
+  return true;
+}
+function spend(){ lastShot=performance.now();
+  if(W_().mag!==Infinity){ ammo[weapon].mag--; hudUntil=performance.now()+2200; } }
+function selectWeapon(i){ if(i===weapon) return;
+  if(W_().id==="saber"){ humStop(); }            // retract on the way out
+  const nid=WEAPONS[((i%WEAPONS.length)+WEAPONS.length)%WEAPONS.length].id;
+  if(VM_WEAPONS[nid] && window.VM3D) VM3D.request(nid);
+  weapon=((i%WEAPONS.length)+WEAPONS.length)%WEAPONS.length;
+  reloadUntil=0; hudUntil=performance.now()+2600;
+  if(WEAPONS[weapon].id==="saber"){ sfx("ignite"); humStart(); } }
+let weapon = 0;
+const W_ = () => WEAPONS[weapon];
+
+// ── real assets ────────────────────────────────────────────────────────────
+// file:// <img> and <audio> load fine from the app directory, so no IPC needed.
+const IMG={};
+for(const n of ["ak47"]){ const i=new Image(); i.onload=()=>{i.ready=1;}; i.src="assets/"+n+".png"; IMG[n]=i; }
+const VO_AVADA=new Audio("assets/avada.mp3"); VO_AVADA.preload="auto";
+// measured from the clip: 0.76s of silence up front, incantation ends at 4.32s
+const VO_START=0.72, VO_CAST=3.62;
+function say(a,from){ try{ const n=a.cloneNode(); n.volume=1;
+  if(from) n.currentTime=from;                 // skip the dead air at the head
+  n.play().catch(()=>{}); return n; }catch(e){ return null; } }
+// FPS viewmodel: the gun does NOT track the crosshair. It sits parked at the
+// bottom right, lags behind your aim (weapon sway) and kicks when it fires —
+// which is what sells "held" instead of "spinning on a stick".
+const VM = { x:0.92, y:1.00, rot:0.30, w:0.52, tipX:0.985, tipY:-0.30 };
+let swayX=0, swayY=0, lastMX=0, lastMY=0;
+function viewmodel(){
+  const w = W*VM.w, h = w*(IMG.ak47.ready ? IMG.ak47.height/IMG.ak47.width : .31);
+  const rot = VM.rot + recoil*0.13;                       // muzzle climbs under recoil
+  const px = W*VM.x + swayX - recoil*26*Math.cos(rot);
+  const py = H*VM.y + swayY - recoil*26*Math.sin(rot);
+  const tx = px + Math.cos(rot)*(-w*VM.tipX) - Math.sin(rot)*(h*VM.tipY);
+  const ty = py + Math.sin(rot)*(-w*VM.tipX) + Math.cos(rot)*(h*VM.tipY);
+  return { px, py, rot, w, h, tx, ty };
+}   // sprite is drawn head-up-left; align it to heading
+
+const c = document.getElementById("c"), ctx = c.getContext("2d");
+// Glow/energy renders to its own layer that FADES each frame instead of being
+// cleared, which is what gives fire and tracers real motion trails. Composited
+// additively so overlapping flames build to white-hot the way fire actually does.
+const gc = document.createElement("canvas"), gx = gc.getContext("2d");
+let W, H, DPR;
+function resize(){ DPR=devicePixelRatio||1; W=innerWidth; H=innerHeight;
+  c.width=W*DPR; c.height=H*DPR; c.style.width=W+"px"; c.style.height=H+"px";
+  gc.width=W*DPR; gc.height=H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0); gx.setTransform(DPR,0,0,DPR,0,0); }
+resize(); addEventListener("resize", resize);
+
+const rand=(a,b)=>a+Math.random()*(b-a), clamp=(v,l,h)=>Math.max(l,Math.min(h,v));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+let mx=0,my=0, down=false, shake=0, flashCol=null, flashA=0;
+let sessions=[], sel=0;
+let SAFE={t:0,r:0,b:0,l:0};   // menu bar / Dock insets
+const bot={x:0,y:0,hx:0,hy:0,vx:0,vy:0,ang:0,angVel:0,squash:1,flash:0,hits:0,rigid:0,
+           burn:0,bubble:"",bubbleUntil:0};
+const fx=[];                      // every projectile / particle / effect
+function muzzle(){                      // where a projectile is born
+  const id=W_().id;
+  if((id==="gun"||id==="flame"||id==="avada") && window.VM3D && VM3D.size.w
+     && VM3D.slots[id] && VM3D.slots[id].ready) return {x:VM3D.muzzle.x, y:VM3D.muzzle.y};
+  return {x:W/2,y:H-70};               // molotov and fallbacks: your hands
+}
+
+// ── audio ──────────────────────────────────────────────────────────────────
+let actx=null, WHIPBUF=[];
+(async()=>{ try{
+  const raw=await window.whip.sounds();
+  actx=new (window.AudioContext||window.webkitAudioContext)();
+  WHIPBUF=await Promise.all(raw.map(u=>actx.decodeAudioData(
+    u.buffer.slice(u.byteOffset,u.byteOffset+u.byteLength))));
+}catch(e){} })();
+const now=()=>actx.currentTime;
+function env(node,peak,dur,t0){ const g=actx.createGain();
+  g.gain.setValueAtTime(.0001,t0); g.gain.exponentialRampToValueAtTime(peak,t0+.004);
+  g.gain.exponentialRampToValueAtTime(.0001,t0+dur); node.connect(g); return g; }
+function noise(dur,decay){ const n=Math.floor(actx.sampleRate*dur),
+  b=actx.createBuffer(1,n,actx.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,decay);
+  const s=actx.createBufferSource(); s.buffer=b; return s; }
+function sfx(kind,power=1,pan=0){
+  if(!actx) return; if(actx.state==="suspended") actx.resume();
+  const t=now(), P=actx.createStereoPanner(); P.pan.value=clamp(pan,-1,1);
+  P.connect(actx.destination);
+  const F=(type,f0,f1,q)=>{const b=actx.createBiquadFilter();b.type=type;
+    b.frequency.setValueAtTime(f0,t); if(f1)b.frequency.exponentialRampToValueAtTime(f1,t+.15);
+    if(q)b.Q.value=q; return b;};
+  if(kind==="whip"&&WHIPBUF.length){
+    const s=actx.createBufferSource(); s.buffer=pick(WHIPBUF);
+    s.playbackRate.value=.9+power*.35+rand(-.05,.05);
+    const lp=F("lowpass",3000+power*9000); s.connect(lp); env(lp,.9*power,.4,t).connect(P); s.start(t); return; }
+  if(kind==="gun"){ const s=noise(.18,7), lp=F("lowpass",7000,500);
+    s.connect(lp); env(lp,.85,.16,t).connect(P); s.start(t);
+    const o=actx.createOscillator(); o.type="sine";
+    o.frequency.setValueAtTime(160,t); o.frequency.exponentialRampToValueAtTime(42,t+.1);
+    env(o,.6,.14,t).connect(P); o.start(t); o.stop(t+.16); return; }
+  if(kind==="flame"){ const s=noise(.3,.6), bp=F("bandpass",420+rand(-90,90),null,.9);
+    s.connect(bp); env(bp,.12,.28,t).connect(P); s.start(t); return; }
+  if(kind==="avada"){ const o=actx.createOscillator(); o.type="sawtooth";
+    o.frequency.setValueAtTime(1400,t); o.frequency.exponentialRampToValueAtTime(70,t+.5);
+    const bp=F("bandpass",900,null,6); o.connect(bp); env(bp,.5,.55,t).connect(P);
+    o.start(t); o.stop(t+.6);
+    const s=noise(.5,1.5), hp=F("highpass",2200); s.connect(hp); env(hp,.3,.5,t).connect(P); s.start(t); return; }
+  if(kind==="ignite"){ const n=noise(.5,2.2), bp=F("bandpass",900,4200,1.6);
+    n.connect(bp); env(bp,.5,.45,t).connect(P); n.start(t);
+    const o=actx.createOscillator(); o.type="sawtooth";
+    o.frequency.setValueAtTime(90,t); o.frequency.exponentialRampToValueAtTime(420,t+.28);
+    const lp2=F("lowpass",1500); o.connect(lp2); env(lp2,.35,.4,t).connect(P);
+    o.start(t); o.stop(t+.45); return; }
+  if(kind==="swing"){ const n=noise(.3,1.4), bp=F("bandpass",700+power*1400,null,2.2);
+    n.connect(bp); env(bp,.18*power,.26,t).connect(P); n.start(t); return; }
+  if(kind==="clash"){ const n=noise(.35,4), bp=F("bandpass",2600,700,1.2);
+    n.connect(bp); env(bp,.75,.3,t).connect(P); n.start(t);
+    const o=actx.createOscillator(); o.type="square";
+    o.frequency.setValueAtTime(1800,t); o.frequency.exponentialRampToValueAtTime(180,t+.12);
+    env(o,.3,.14,t).connect(P); o.start(t); o.stop(t+.16); return; }
+  if(kind==="glass"){ const s=noise(.25,5), hp=F("highpass",2600);
+    s.connect(hp); env(hp,.55,.22,t).connect(P); s.start(t); return; }
+  if(kind==="boom"){ const s=noise(.7,1.3), lp=F("lowpass",1400,180);
+    s.connect(lp); env(lp,.9,.65,t).connect(P); s.start(t);
+    const o=actx.createOscillator(); o.type="sine";
+    o.frequency.setValueAtTime(110,t); o.frequency.exponentialRampToValueAtTime(30,t+.4);
+    env(o,.8,.5,t).connect(P); o.start(t); o.stop(t+.55); return; }
+}
+
+// ── damage ─────────────────────────────────────────────────────────────────
+let lastArm=0;
+function damage(x,y,vx,vy,power,opts={}){
+  const n=Math.hypot(vx,vy)||1;
+  bot.vx+=(vx/n)*14*power; bot.vy+=(vy/n)*14*power;
+  bot.angVel+=rand(-.4,.4)*power; bot.squash=clamp(1-.35*power,.5,1);
+  bot.flash=1; bot.hits++; shake=Math.max(shake,10*power);
+  if(opts.rigid) bot.rigid=Math.max(bot.rigid,opts.rigid);
+  if(opts.burn)  bot.burn =Math.max(bot.burn ,opts.burn);
+  for(let i=0;i<Math.round(14*power);i++){ const a=rand(0,7),s=rand(2,10);
+    fx.push({k:"spark",x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,col:opts.col||ORANGE}); }
+  const t=performance.now();
+  if(t-lastArm>700){                            // don't spam the session file
+    lastArm=t;
+    const msg=pick(W_().msg);
+    bot.bubble=msg; bot.bubbleUntil=t+1600;
+    const s=sessions[sel];
+    if(s) window.whip.crack(s.id, msg);
+  }
+}
+const inBox=(x,y)=>Math.abs(x-bot.x)<=BOX_HW() && Math.abs(y-bot.y)<=BOX_HH();
+
+// ── weapons ────────────────────────────────────────────────────────────────
+// whip: verlet rope, unchanged physics
+const R={segments:26,segLen:16,taper:.32,gravity:.9,damping:.965,iters:18,
+         hitSpeed:9,sweep:7,windup:140,snap:250};
+let rope=null, strikeAt=0, sFrom=null, sMid=null, sTo=null, lastCrack=0;
+const segLen=i=>R.segLen*(1-(i/(R.segments-1))*(1-R.taper));
+function ropeSpawn(){ rope=[]; for(let i=0;i<R.segments;i++){ const t=i/(R.segments-1);
+  const x=mx+t*170, y=my-Math.sin(t*Math.PI*.7)*120; rope.push({x,y,px:x,py:y}); } }
+function ropeStrike(){ const a=Math.atan2(bot.y-my,bot.x-mx);
+  sFrom={x:rope[0].x,y:rope[0].y};
+  sMid={x:mx-Math.cos(a)*150,y:my-Math.sin(a)*150};
+  sTo={x:mx+Math.cos(a)*230,y:my+Math.sin(a)*230}; strikeAt=performance.now(); }
+function hand(){ if(!strikeAt) return{x:mx,y:my};
+  const e=performance.now()-strikeAt;
+  if(e<R.windup){ const k=e/R.windup,s=k*k*(3-2*k);
+    return{x:sFrom.x+(sMid.x-sFrom.x)*s,y:sFrom.y+(sMid.y-sFrom.y)*s}; }
+  const k=(e-R.windup)/R.snap; if(k>=1){strikeAt=0; return{x:mx,y:my};}
+  const s=1-Math.pow(1-k,5);
+  return{x:sMid.x+(sTo.x-sMid.x)*s,y:sMid.y+(sTo.y-sMid.y)*s}; }
+function ropeStep(){ const h=hand();
+  for(let i=1;i<rope.length;i++){ const p=rope[i],vx=(p.x-p.px)*R.damping,vy=(p.y-p.py)*R.damping;
+    p.px=p.x;p.py=p.y;p.x+=vx;p.y+=vy+R.gravity; }
+  for(let k=0;k<R.iters;k++){ rope[0].x=h.x; rope[0].y=h.y;
+    for(let i=0;i<rope.length-1;i++){ const a=rope[i],b=rope[i+1];
+      let dx=b.x-a.x,dy=b.y-a.y; const d=Math.hypot(dx,dy)||1e-4,f=(d-segLen(i))/d*.5;
+      dx*=f;dy*=f; if(i>0){a.x+=dx;a.y+=dy;}else{a.x=h.x;a.y=h.y;} b.x-=dx;b.y-=dy; } } }
+function ropeHit(){ const t=performance.now(); if(t-lastCrack<200) return;
+  for(let i=4;i<rope.length;i++){ const p=rope[i],dx=p.x-p.px,dy=p.y-p.py,sp=Math.hypot(dx,dy);
+    if(sp<R.hitSpeed) continue;
+    const n=Math.max(1,Math.ceil(sp/R.sweep));
+    for(let s=0;s<=n;s++){ const x=p.px+dx*(s/n),y=p.py+dy*(s/n);
+      if(inBox(x,y)){ lastCrack=t; sfx("whip",clamp(sp/42,.3,1),(x/W-.5)*1.6);
+        damage(x,y,dx,dy,clamp(sp/40,.4,1),{col:"#e8ded0"}); return; } } } }
+
+// Launch velocity that puts the object on (tx,ty) after T frames of gravity.
+function ballistic(kind, from, tx, ty, spin){
+  const dx=tx-from.x, dy=ty-from.y;
+  const T=clamp(Math.hypot(dx,dy)/8.5, 32, 95), g=0.62;
+  return { k:kind, x:from.x, y:from.y, tx, ty,
+           vx: dx/T, vy: (dy - 0.5*g*T*T)/T, g,
+           t:0, dur:T, rot:0, spin, life:1 };
+}
+
+let saberOn=0, saberTipPrev=null, saberHit=0, hum=null;
+const SABER_COL = 0x33ddff;
+
+function humStart(){
+  if(!actx || hum) return;
+  const g=actx.createGain(); g.gain.value=0.0001;
+  const lp=actx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=420; lp.Q.value=3;
+  const a=actx.createOscillator(), b=actx.createOscillator();
+  a.type="sawtooth"; a.frequency.value=68; b.type="sawtooth"; b.frequency.value=101.5;
+  a.connect(lp); b.connect(lp); lp.connect(g); g.connect(actx.destination);
+  a.start(); b.start();
+  hum={a,b,g,lp};
+}
+function humStop(){ if(!hum) return; const t=actx.currentTime;
+  hum.g.gain.cancelScheduledValues(t); hum.g.gain.setValueAtTime(hum.g.gain.value,t);
+  hum.g.gain.exponentialRampToValueAtTime(.0001,t+.18);
+  const h=hum; hum=null; setTimeout(()=>{try{h.a.stop();h.b.stop();}catch(e){}},250); }
+function humLevel(speed){ if(!hum||!actx) return;
+  const t=actx.currentTime, v=clamp(.035+speed*.0045,.03,.30);
+  hum.g.gain.setTargetAtTime(v,t,.05);
+  hum.lp.frequency.setTargetAtTime(380+speed*26,t,.05); }
+
+let recoil=0;
+let casting=null;   // avada wind-up: charging until the incantation lands
+function fire(){
+  const w=W_().id, m=muzzle(), a=Math.atan2(my-m.y,mx-m.x);
+  if(w==="whip"){ ropeStrike(); return; }
+  if(w==="gun"){ sfx("gun",1,(mx/W-.5)*1.6); recoil=1; shake=Math.max(shake,4);
+    const MZ=0;   // muzzle() already returns the barrel tip
+    fx.push({k:"muzzle",x:m.x+Math.cos(a)*MZ,y:m.y+Math.sin(a)*MZ,a,life:1});
+    fx.push({k:"tracer",x1:m.x+Math.cos(a)*MZ,y1:m.y+Math.sin(a)*MZ,x2:mx,y2:my,t:0,life:1});
+    fx.push({k:"shell",x:m.x+Math.cos(a)*70,y:m.y+Math.sin(a)*70-6,vx:rand(2.5,5.5),vy:rand(-7,-4),
+             rot:rand(0,7),spin:rand(-.5,.5),life:1});
+    if(inBox(mx,my)){ damage(mx,my,Math.cos(a),Math.sin(a),.75,{col:"#ffe9a8"});
+      puff(mx,my,3,1.2); }
+    else { puff(mx,my,2,1.1);
+      for(let i=0;i<9;i++){ const q=rand(0,7),sp=rand(1.5,6);
+        fx.push({k:"spark",x:mx,y:my,vx:Math.cos(q)*sp,vy:Math.sin(q)*sp,life:1,d:.04}); } }
+    return; }
+  if(w==="avada"){
+    // No synth noise. The curse is spoken first; the bolt leaves the wand on
+    // the last syllable, not before it.
+    say(VO_AVADA, VO_START);
+    casting = { until: performance.now()+VO_CAST*1000, tx:mx, ty:my }; recoil=0.5;
+    return; }
+  if(w==="molotov"){ fx.push(ballistic("bottle", m, mx, my, 0.26)); return; }
+}
+function holdFire(){
+  const m=muzzle(), a=Math.atan2(my-m.y,mx-m.x);
+  for(let i=0;i<4;i++){ const sp=rand(11,18), j=a+rand(-.12,.12);
+    fx.push({k:"fire",x:m.x+Math.cos(a)*54,y:m.y+Math.sin(a)*54,
+             vx:Math.cos(j)*sp,vy:Math.sin(j)*sp,
+             life:1,d:rand(.016,.026),r:rand(5,10),seed:rand(0,9)}); }
+  if(Math.random()<.3) sfx("flame",1,(mx/W-.5)*1.2);
+}
+
+// ── colour ramps ───────────────────────────────────────────────────────────
+// Real flame runs white-hot -> straw -> orange -> deep red -> ember, so drive
+// every fire particle's colour off its remaining life instead of one flat hue.
+const FIRE=[[255,255,238],[255,236,160],[255,170,52],[228,82,18],[104,22,6]];
+const GREEN=[[230,255,236],[120,255,170],[43,255,106],[16,168,70],[8,70,30]];
+function ramp(st,k){ k=clamp(k,0,1)*(st.length-1); const i=Math.min(Math.floor(k),st.length-2), f=k-i;
+  const a=st[i], b=st[i+1];
+  return `${Math.round(a[0]+(b[0]-a[0])*f)},${Math.round(a[1]+(b[1]-a[1])*f)},${Math.round(a[2]+(b[2]-a[2])*f)}`; }
+function glow(g,x,y,r,rgb,a){ const d=g.createRadialGradient(x,y,0,x,y,r);
+  d.addColorStop(0,`rgba(${rgb},${a})`); d.addColorStop(.4,`rgba(${rgb},${a*.5})`);
+  d.addColorStop(1,`rgba(${rgb},0)`); g.fillStyle=d;
+  g.beginPath(); g.arc(x,y,r,0,7); g.fill(); }
+
+// ── effects update + draw ──────────────────────────────────────────────────
+let burnTick=0;
+const smoke=[];
+function puff(x,y,n,spd){ for(let i=0;i<n;i++){ const a=rand(0,7);
+  smoke.push({x,y,vx:Math.cos(a)*spd*rand(.2,1),vy:Math.sin(a)*spd*rand(.2,1)-rand(.3,1.1),
+              r:rand(6,16),life:1,decay:rand(.004,.011)}); } }
+
+function stepFx(){
+  const t=performance.now();
+  for(let i=smoke.length-1;i>=0;i--){ const m=smoke[i];
+    m.x+=m.vx; m.y+=m.vy; m.vy-=.012; m.vx*=.985; m.vy*=.985;
+    m.r+=.55; m.life-=m.decay; if(m.life<=0) smoke.splice(i,1); }
+
+  for(let i=fx.length-1;i>=0;i--){ const e=fx[i];
+    if(e.k==="spark"){ e.px=e.x; e.py=e.y;
+      e.x+=e.vx; e.y+=e.vy; e.vy+=.36; e.vx*=.975; e.vy*=.975; e.life-=e.d||.022; }
+    else if(e.k==="fire"){ e.px=e.x; e.py=e.y;
+      e.seed+=.09;
+      e.vx+=Math.sin(e.seed*1.7)*.34; e.vy+=Math.cos(e.seed*1.3)*.26 - .17;  // turbulence + buoyancy
+      e.x+=e.vx; e.y+=e.vy; e.vx*=.955; e.vy*=.955; e.r*=1.021; e.life-=e.d;
+      if(e.life<.42 && !e.smoked){ e.smoked=1; if(Math.random()<.28) puff(e.x,e.y,1,.5); }
+      if(e.life>.3&&inBox(e.x,e.y)&&t-burnTick>110){ burnTick=t;
+        damage(e.x,e.y,e.vx,e.vy,.2,{col:"#ff9d2e",burn:1000}); } }
+    else if(e.k==="muzzle"){ e.life-=.22; }
+    else if(e.k==="tracer"){ e.t+=.34; e.life=e.t>=1?0:1; }
+    else if(e.k==="shell"){ e.x+=e.vx; e.y+=e.vy; e.vy+=.5; e.vx*=.99; e.rot+=e.spin;
+      if(e.y>H-6){ e.y=H-6; e.vy*=-.36; e.vx*=.6; e.spin*=.5; } e.life-=.006; }
+    else if(e.k==="bolt"){ e.px=e.x; e.py=e.y; e.t+=.045;
+      e.x=e.x1+(e.x2-e.x1)*e.t; e.y=e.y1+(e.y2-e.y1)*e.t;
+      for(let j=0;j<2;j++) fx.push({k:"spark",x:e.x+rand(-6,6),y:e.y+rand(-6,6),
+        vx:rand(-1.6,1.6),vy:rand(-1.6,1.6),life:1,d:.05,col:`rgb(${ramp(GREEN,.35)})`,glowing:1});
+      if(e.t>=1){ e.life=0; flashCol="#2bff6a"; flashA=.5;
+        const a=Math.atan2(e.y2-e.y1,e.x2-e.x1);
+        for(let j=0;j<40;j++){ const q=rand(0,7),sp=rand(2,13);
+          fx.push({k:"spark",x:e.x2,y:e.y2,vx:Math.cos(q)*sp,vy:Math.sin(q)*sp,
+                   life:1,d:.02,col:`rgb(${ramp(GREEN,rand(0,.5))})`,glowing:1}); }
+        if(inBox(e.x2,e.y2)) damage(e.x2,e.y2,Math.cos(a),Math.sin(a),1.4,{col:"#2bff6a",rigid:1500});
+      } else e.life=1; }
+    else if(e.k==="bottle"){ e.t++; const k=e.t/e.dur;
+      e.x+=e.vx; e.y+=e.vy; e.vy+=e.g; e.rot+=e.spin;
+      fx.push({k:"fire",x:e.x,y:e.y,vx:rand(-.6,.6),vy:rand(-.4,.4),
+               life:.5,d:.035,r:rand(4,8),seed:rand(0,9)});
+      if(k>=1){ sfx("glass"); sfx("boom",1,(e.x/W-.5)*1.4);
+        flashCol="#ff9d2e"; flashA=.34; puff(e.x,e.y,14,2.2);
+        for(let j=0;j<26;j++){ const a=rand(0,7),sp=rand(3,11);   // glass
+          fx.push({k:"shard",x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-3,
+                   rot:rand(0,7),spin:rand(-.4,.4),life:1}); }
+        for(let j=0;j<34;j++){ const a=rand(-Math.PI,0),sp=rand(2,10);
+          fx.push({k:"fire",x:e.x,y:e.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+                   life:1,d:.016,r:rand(9,20),seed:rand(0,9)}); }
+        fx.push({k:"pool",x:e.x,y:e.y,born:t,r:24}); e.life=0; } else e.life=1; }
+    else if(e.k==="shard"){ e.x+=e.vx; e.y+=e.vy; e.vy+=.45; e.rot+=e.spin; e.life-=.016; }
+    else if(e.k==="pool"){ const age=(t-e.born)/5200; e.life=1-age; e.r=24+age*100;
+      for(let j=0;j<3;j++) fx.push({k:"fire",x:e.x+rand(-e.r,e.r),y:e.y+rand(-10,10),
+        vx:rand(-.8,.8),vy:rand(-3.2,-1.2),life:.85,d:.02,r:rand(7,15),seed:rand(0,9)});
+      if(Math.random()<.25) puff(e.x+rand(-e.r,e.r),e.y-10,1,.7);
+      if(Math.hypot(bot.x-e.x,bot.y-e.y)<e.r+BOX_HW()&&t-burnTick>140){ burnTick=t;
+        damage(bot.x+rand(-30,30),bot.y+BOX_HH()*.6,0,-1,.24,{col:"#ff4a1a",burn:1300}); } }
+    if(e.life!==undefined&&e.life<=0) fx.splice(i,1);
+  }
+}
+
+// smoke is dark, so it goes on the main canvas with normal blending
+function drawSmoke(){
+  for(const m of smoke){ ctx.globalAlpha=clamp(m.life,0,1)*.26;
+    const g=ctx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.r);
+    g.addColorStop(0,"rgba(64,60,58,1)"); g.addColorStop(1,"rgba(40,38,36,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,7); ctx.fill(); }
+  ctx.globalAlpha=1;
+}
+
+function drawFx(){
+  // fade the glow layer rather than clearing it -> trails
+  gx.globalCompositeOperation="destination-out";
+  gx.fillStyle="rgba(0,0,0,.21)"; gx.fillRect(-60,-60,W+120,H+120);
+  gx.globalCompositeOperation="lighter";
+
+  for(const e of fx){ const A=clamp(e.life,0,1);
+    if(e.k==="fire"){ glow(gx,e.x,e.y,e.r*2.3,ramp(FIRE,1-A),A*.30);
+      glow(gx,e.x,e.y,e.r*.85,ramp(FIRE,(1-A)*.55),A*.52); }
+    else if(e.k==="spark"){ const col=e.col||`rgb(${ramp(FIRE,.3)})`;
+      gx.strokeStyle=col.startsWith("rgb")?col.replace(")",`,${A})`).replace("rgb(","rgba("):col;
+      gx.lineWidth=2; gx.lineCap="round";
+      gx.beginPath(); gx.moveTo(e.px??e.x,e.py??e.y); gx.lineTo(e.x,e.y); gx.stroke();
+      if(e.glowing) glow(gx,e.x,e.y,7,"120,255,170",A*.5); }
+    else if(e.k==="muzzle"){ const r=44*A;
+      glow(gx,e.x,e.y,r*1.5,"255,226,150",A*.75);
+      gx.save(); gx.translate(e.x,e.y); gx.rotate(e.a);
+      gx.fillStyle=`rgba(255,240,190,${A})`;
+      gx.beginPath(); gx.moveTo(0,0); gx.lineTo(r*1.9,-r*.32); gx.lineTo(r*2.5,0);
+      gx.lineTo(r*1.9,r*.32); gx.closePath(); gx.fill();
+      gx.beginPath(); gx.moveTo(0,0); gx.lineTo(r*.9,-r*.75); gx.lineTo(r*1.1,0);
+      gx.lineTo(r*.9,r*.75); gx.closePath(); gx.fill(); gx.restore(); }
+    else if(e.k==="tracer"){ const k=clamp(e.t,0,1), tail=.14;
+      const ax=e.x1+(e.x2-e.x1)*Math.max(0,k-tail), ay=e.y1+(e.y2-e.y1)*Math.max(0,k-tail);
+      const bx=e.x1+(e.x2-e.x1)*k, by=e.y1+(e.y2-e.y1)*k;
+      const g2=gx.createLinearGradient(ax,ay,bx,by);
+      g2.addColorStop(0,"rgba(255,200,90,0)"); g2.addColorStop(1,"rgba(255,246,214,.95)");
+      gx.strokeStyle=g2; gx.lineWidth=2.6; gx.lineCap="round";
+      gx.beginPath(); gx.moveTo(ax,ay); gx.lineTo(bx,by); gx.stroke(); }
+    else if(e.k==="bolt"){
+      // A coherent jagged channel from wand to impact, whose kinks DRIFT rather
+      // than being re-randomised every frame (which just read as static).
+      const ax=e.x1, ay=e.y1, bx=e.x, by=e.y;
+      const dx=bx-ax, dy=by-ay, len=Math.hypot(dx,dy)||1;
+      const nx=-dy/len, ny=dx/len, N=18;
+      e.phase=(e.phase||0)+0.35;
+      const path=[];
+      for(let i=0;i<=N;i++){ const k=i/N;
+        const env=Math.sin(k*Math.PI);                       // pinned at both ends
+        const off=(Math.sin(k*11+e.phase)*0.6+Math.sin(k*23-e.phase*1.7)*0.4)*26*env;
+        path.push([ax+dx*k+nx*off, ay+dy*k+ny*off]);
+      }
+      const stroke=(w2,col)=>{ gx.strokeStyle=col; gx.lineWidth=w2; gx.lineCap="round";
+        gx.lineJoin="round"; gx.beginPath(); gx.moveTo(path[0][0],path[0][1]);
+        for(let i=1;i<path.length;i++) gx.lineTo(path[i][0],path[i][1]); gx.stroke(); };
+      stroke(17,"rgba(20,120,50,.40)");      // outer haze
+      stroke(8, "rgba(43,255,106,.70)");     // body
+      stroke(2.6,"rgba(225,255,235,.95)");   // hot core
+      for(let i=2;i<path.length-1;i+=5){     // forked branches off the channel
+        gx.strokeStyle="rgba(43,255,106,.5)"; gx.lineWidth=1.6;
+        gx.beginPath(); gx.moveTo(path[i][0],path[i][1]);
+        let bxx=path[i][0], byy=path[i][1];
+        for(let q=0;q<2;q++){ bxx+=nx*rand(-26,26)+rand(-8,8); byy+=ny*rand(-26,26)+rand(-8,8);
+          gx.lineTo(bxx,byy); }
+        gx.stroke(); }
+      glow(gx,e.x,e.y,60,"43,255,106",.55);
+      glow(gx,e.x1,e.y1,34,"43,255,106",.35); }
+  }
+  if(saberOn>0.02 && window.VM3D && VM3D.saber && VM3D.saber.on>0.02){
+    const S=VM3D.saber, A=clamp(saberOn,0,1);
+    const line=(w2,col)=>{ gx.strokeStyle=col; gx.lineWidth=w2; gx.lineCap="round";
+      gx.beginPath(); gx.moveTo(S.bx,S.by); gx.lineTo(S.tx,S.ty); gx.stroke(); };
+    line(30*A, `rgba(30,140,200,${.20*A})`);     // outer bloom
+    line(15*A, `rgba(70,200,255,${.42*A})`);     // body
+    line(5.5*A,`rgba(230,250,255,${.95*A})`);    // white-hot core
+    glow(gx,S.tx,S.ty,26*A,"120,225,255",.5*A);  // emitter + tip bloom
+    glow(gx,S.bx,S.by,16*A,"120,225,255",.45*A);
+  }
+  gx.globalCompositeOperation="source-over";
+
+  // solid, non-glowing things draw straight to the main canvas
+  for(const e of fx){ const A=clamp(e.life,0,1);
+    if(e.k==="shell"){ ctx.save(); ctx.globalAlpha=A; ctx.translate(e.x,e.y); ctx.rotate(e.rot);
+      ctx.fillStyle="#d9a441"; ctx.fillRect(-5,-2,10,4);
+      ctx.fillStyle="#b07c22"; ctx.fillRect(3,-2,2,4); ctx.restore(); }
+    else if(e.k==="shard"){ ctx.save(); ctx.globalAlpha=A*.9; ctx.translate(e.x,e.y); ctx.rotate(e.rot);
+      ctx.fillStyle="rgba(150,205,170,.85)";
+      ctx.beginPath(); ctx.moveTo(0,-5); ctx.lineTo(4,3); ctx.lineTo(-3,4); ctx.closePath(); ctx.fill();
+      ctx.restore(); }
+    // e.k==="bottle" draws nothing here: the real 3D model is flown instead,
+    // composited by drawCursor() so it sits correctly in the draw order.
+    ctx.globalAlpha=1;
+  }
+}
+const t2=()=>performance.now()*.06;
+
+// ── the bot ────────────────────────────────────────────────────────────────
+function drawBot(){
+  const t=performance.now();
+  ctx.save(); ctx.translate(bot.x,bot.y); ctx.rotate(bot.rigid>t?0:bot.ang);
+  ctx.scale(ICON_SCALE*(2-bot.squash), ICON_SCALE*bot.squash);
+  ctx.translate(-ICON_CX,-ICON_CY);
+  ctx.shadowColor = bot.rigid>t ? "#2bff6a" : bot.burn>t ? "#ff7a18" : "rgba(217,119,87,.55)";
+  ctx.shadowBlur=30/ICON_SCALE;
+  ctx.fillStyle = bot.rigid>t ? "#7de8a0" : ORANGE;
+  ctx.fill(CLAUDE_PATH,"evenodd");
+  if(bot.flash>.01){ ctx.globalAlpha=bot.flash; ctx.fillStyle="#fff";
+    ctx.fill(CLAUDE_PATH,"evenodd"); ctx.globalAlpha=1; }
+  ctx.restore();
+  if(bot.burn>t) for(let i=0;i<2;i++) fx.push({k:"fire",
+    x:bot.x+rand(-BOX_HW()*.6,BOX_HW()*.6), y:bot.y+rand(-20,20),
+    vx:rand(-.5,.5), vy:rand(-2.6,-1), life:.55, r:rand(5,11)});
+  if(bot.bubble && t<bot.bubbleUntil){
+    ctx.font="600 20px ui-sans-serif,-apple-system,system-ui,sans-serif";
+    const w=ctx.measureText(bot.bubble).width+28, bx=bot.x-w/2, by=bot.y-150;
+    ctx.fillStyle="rgba(20,18,17,.93)"; ctx.strokeStyle=W_().col; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.roundRect(bx,by,w,42,10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(bot.bubble,bot.x,by+21); }
+}
+
+// ── cursor per weapon ──────────────────────────────────────────────────────
+const VM_WEAPONS = { gun:1, avada:1, flame:1, molotov:1, saber:1 };
+function drawCursor(){
+  const w=W_().id;
+
+  // Everything 3D is staged into one scene, rendered once, composited here.
+  if(window.VM3D && VM3D.resize){
+    VM3D.resize(W,H); VM3D.hideAll();
+    let any=false;
+    const bottle=fx.find(e=>e.k==="bottle");
+    if(bottle) any = VM3D.place("molotov", bottle.x, bottle.y,
+                                2.9+clamp(bottle.t/bottle.dur,0,1)*3.6, bottle.rot) || any;
+    if(w==="whip" && rope) any = VM3D.setWhip(rope) || any;
+    const busy = (w==="molotov"&&bottle);
+    if(VM_WEAPONS[w] && !busy) any = VM3D.render(w, recoil, swayX, swayY, mx, my) || any;
+    if(any){ VM3D.draw(); ctx.drawImage(VM3D.canvas, 0, 0, W, H); }
+  }
+
+  ctx.save();
+  if(w==="gun"){ ctx.strokeStyle="#fff"; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(mx,my,15,0,7); ctx.stroke();
+    ctx.beginPath(); for(const [dx,dy] of [[-24,0],[24,0],[0,-24],[0,24]]){
+      ctx.moveTo(mx+dx*.42,my+dy*.42); ctx.lineTo(mx+dx,my+dy);} ctx.stroke();
+    ctx.fillStyle="#fff"; ctx.fillRect(mx-1.5,my-1.5,3,3); }
+  else if(w==="flame"){ ctx.strokeStyle="#ff7a18"; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(mx,my,13,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(mx,my,3,0,7); ctx.fillStyle="#ff7a18"; ctx.fill(); }
+  else if(w==="avada"){ const g=ctx.createRadialGradient(mx,my,0,mx,my,22);
+    g.addColorStop(0,"rgba(43,255,106,.9)"); g.addColorStop(1,"rgba(43,255,106,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(mx,my,22,0,7); ctx.fill(); }
+  else if(w==="molotov"){ ctx.strokeStyle="#ff4a1a"; ctx.lineWidth=2;
+    ctx.setLineDash([5,5]); ctx.beginPath(); ctx.arc(mx,my,17,0,7); ctx.stroke();
+    ctx.setLineDash([]); }
+  ctx.restore();
+}
+
+// ── chrome: session chips (top) + weapon bar (bottom) ──────────────────────
+let chipRects=[];
+function drawChips(){
+  chipRects=[]; ctx.font="600 13px ui-monospace,SFMono-Regular,Menlo,monospace";
+  let x=22+SAFE.l; const y=20+SAFE.t, h=30;
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.fillStyle="rgba(255,255,255,.45)"; ctx.fillText("TARGET", x, y+h/2); x+=68;
+  if(!sessions.length){ ctx.fillStyle="rgba(255,255,255,.35)";
+    ctx.fillText("no live Claude sessions", x, y+h/2); return; }
+  sessions.forEach((s,i)=>{
+    const label=`${s.name}${s.sore?"  ·  "+s.sore:""}`;
+    const w=ctx.measureText(label).width+26;
+    chipRects.push({x,y,w,h,i});
+    ctx.fillStyle = i===sel ? "rgba(217,119,87,.9)" : "rgba(30,28,26,.8)";
+    ctx.strokeStyle = i===sel ? "#fff" : "rgba(255,255,255,.2)"; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.roundRect(x,y,w,h,8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = i===sel ? "#fff" : "rgba(255,255,255,.65)";
+    ctx.fillText(label, x+13, y+h/2);
+    x+=w+9;
+  });
+}
+function drawWeaponBar(){
+  const t=performance.now(), AMBER="#f0b132";
+  ctx.textBaseline="middle";
+
+  // slot list, right edge — CS shows it briefly after you switch
+  if(t<hudUntil){
+    ctx.globalAlpha=clamp((hudUntil-t)/400,0,1); ctx.textAlign="right";
+    const x=W-34-SAFE.r, y0=H/2-WEAPONS.length*15;
+    WEAPONS.forEach((w,i)=>{
+      const y=y0+i*30, on=i===weapon, A=ammo[i], dry=A.mag<=0&&A.res<=0;
+      if(on){ ctx.fillStyle="rgba(240,177,50,.14)"; ctx.fillRect(x-206,y-13,212,26);
+              ctx.fillStyle=AMBER; ctx.fillRect(x+4,y-13,3,26); }
+      ctx.font=(on?"600 15px ":"600 13px ")+"ui-monospace,SFMono-Regular,Menlo,monospace";
+      ctx.fillStyle = dry ? "rgba(190,60,50,.75)" : on ? "#fff" : "rgba(240,177,50,.62)";
+      ctx.fillText(w.name, x-10, y);
+      ctx.font="600 12px ui-monospace,Menlo,monospace";
+      ctx.fillStyle = on ? AMBER : "rgba(240,177,50,.4)";
+      ctx.fillText(String(i+1), x-192, y);
+    });
+    ctx.globalAlpha=1;
+  }
+
+  // ammo, bottom right
+  const w=W_(), A=ammo[weapon];
+  ctx.textAlign="right";
+  if(w.mag===Infinity){
+    ctx.font="600 46px ui-monospace,SFMono-Regular,Menlo,monospace";
+    ctx.fillStyle=AMBER; ctx.fillText(String.fromCharCode(0x221E), W-40-SAFE.r, H-56-SAFE.b);
+  } else {
+    ctx.font="700 50px ui-monospace,SFMono-Regular,Menlo,monospace";
+    ctx.fillStyle = A.mag <= w.mag*0.25 ? "#e0502f" : AMBER;
+    ctx.fillText(String(A.mag), W-116-SAFE.r, H-56-SAFE.b);
+    ctx.font="600 26px ui-monospace,SFMono-Regular,Menlo,monospace";
+    ctx.fillStyle="rgba(240,177,50,.55)"; ctx.fillText("/ "+A.res, W-40-SAFE.r, H-52-SAFE.b);
+  }
+  ctx.font="600 12px ui-monospace,Menlo,monospace";
+  ctx.fillStyle="rgba(240,177,50,.55)"; ctx.fillText(w.name, W-40-SAFE.r, H-24-SAFE.b);
+
+  // target condition, bottom left
+  const sess=sessions[sel];
+  ctx.textAlign="left";
+  const hp = sess ? clamp(100 - Math.min(100,(sess.sore+bot.hits))*4, 0, 100) : 100;
+  ctx.font="700 50px ui-monospace,SFMono-Regular,Menlo,monospace";
+  ctx.fillStyle = hp<30 ? "#e0502f" : AMBER; ctx.fillText(String(Math.round(hp)), 40+SAFE.l, H-56-SAFE.b);
+  ctx.font="600 12px ui-monospace,Menlo,monospace";
+  ctx.fillStyle="rgba(240,177,50,.55)";
+  ctx.fillText(sess ? sess.name.toUpperCase() : "NO TARGET", 40+SAFE.l, H-24-SAFE.b);
+  ctx.fillStyle="rgba(240,177,50,.18)"; ctx.fillRect(40+SAFE.l,H-84-SAFE.b,190,4);
+  ctx.fillStyle = hp<30 ? "#e0502f" : AMBER; ctx.fillRect(40,H-84-SAFE.b,190*hp/100,4);
+
+  // reloading
+  if(t<reloadUntil){
+    const k=1-(reloadUntil-t)/(w.rl*1000);
+    ctx.textAlign="center"; ctx.font="600 13px ui-monospace,Menlo,monospace";
+    ctx.fillStyle=AMBER; ctx.fillText("RELOADING", W/2, H-96-SAFE.b);
+    ctx.fillStyle="rgba(240,177,50,.2)"; ctx.fillRect(W/2-90,H-84-SAFE.b,180,4);
+    ctx.fillStyle=AMBER; ctx.fillRect(W/2-90,H-84-SAFE.b,180*k,4);
+  }
+  ctx.textAlign="center"; ctx.font="600 11px ui-monospace,Menlo,monospace";
+  ctx.fillStyle="rgba(255,255,255,.3)";
+  ctx.fillText("1-7 weapon  \u00b7  R reload  \u00b7  click fire  \u00b7  esc leave", W/2, H-10-SAFE.b);
+}
+
+// ── loop ───────────────────────────────────────────────────────────────────
+function frame(){
+  requestAnimationFrame(frame);
+  ctx.setTransform(DPR,0,0,DPR,0,0); ctx.clearRect(0,0,W,H);
+  if(!rope) return;
+  if(shake>.4){ ctx.translate(rand(-shake,shake),rand(-shake,shake)); shake*=.85; }
+  ctx.fillStyle="rgba(10,8,7,.16)"; ctx.fillRect(-50,-50,W+100,H+100);
+  if(flashA>.01){ ctx.fillStyle=flashCol; ctx.globalAlpha=flashA;
+    ctx.fillRect(-50,-50,W+100,H+100); ctx.globalAlpha=1; flashA*=.86; }
+
+  ropeStep(); if(W_().id==="whip") ropeHit();
+  if(down && W_().mode==="hold" && canFire()){ spend(); holdFire(); recoil=Math.min(1,recoil+0.22); }
+  if(down && W_().mode==="auto" && canFire()){ spend(); fire(); }
+  // ── lightsaber ───────────────────────────────────────────────────────
+  const isSaber = W_().id==="saber";
+  saberOn += ((isSaber?1:0) - saberOn) * 0.16;            // ignite / retract
+  if(window.VM3D && VM3D.setBlade && VM3D.slots && VM3D.slots.saber)
+    VM3D.setBlade(saberOn, SABER_COL);
+  if(isSaber && saberOn>0.5 && window.VM3D && VM3D.saber){
+    const S=VM3D.saber;
+    const sp = saberTipPrev ? Math.hypot(S.tx-saberTipPrev.x, S.ty-saberTipPrev.y) : 0;
+    humLevel(sp);
+    if(sp>26 && performance.now()-saberHit>170) sfx("swing", clamp(sp/48,.3,1), (S.tx/W-.5)*1.4);
+    // blade is a line, so sample along it and test the crossing
+    if(sp>5 && performance.now()-saberHit>190){
+      for(let i=3;i<=10;i++){ const k=i/10;
+        const px2=S.bx+(S.tx-S.bx)*k, py2=S.by+(S.ty-S.by)*k;
+        if(inBox(px2,py2)){
+          saberHit=performance.now();
+          sfx("clash",1,(px2/W-.5)*1.4);
+          const vx=saberTipPrev?S.tx-saberTipPrev.x:1, vy=saberTipPrev?S.ty-saberTipPrev.y:0;
+          damage(px2,py2,vx,vy,clamp(sp/34,.35,1),{col:"#9fefff"});
+          for(let q=0;q<18;q++){ const a2=rand(0,7),s2=rand(2,9);
+            fx.push({k:"spark",x:px2,y:py2,vx:Math.cos(a2)*s2,vy:Math.sin(a2)*s2,
+                     life:1,d:.03,col:"rgb(180,240,255)",glowing:1}); }
+          break;
+        } }
+    }
+    saberTipPrev={x:S.tx,y:S.ty};
+  } else if(!isSaber){ saberTipPrev=null; }
+
+  if(!casting && window.VM3D && VM3D.setCastGlow) VM3D.setCastGlow(0,0,0);
+  if(casting){
+    const left=casting.until-performance.now();
+    const m2=muzzle();
+    if(left>0){
+      const k=1-clamp(left/(VO_CAST*1000),0,1);                 // 0 -> 1 over the incantation
+      for(let i=0;i<2;i++){                                      // power gathers at the wand tip
+        const a2=rand(0,7), rr=rand(40,150)*(1-k)+8;
+        fx.push({k:"spark",x:mx+Math.cos(a2)*rr,y:my+Math.sin(a2)*rr,
+                 vx:-Math.cos(a2)*rr*.09,vy:-Math.sin(a2)*rr*.09,
+                 life:1,d:.05,col:`rgb(${ramp(GREEN,.3)})`,glowing:1});
+      }
+      flashA=Math.max(flashA,k*0.07); flashCol="#0a2a14";   // the room darkens
+      shake=Math.max(shake,k*4);
+      if(window.VM3D && VM3D.setCastGlow) VM3D.setCastGlow(0.15+k*0.95, mx, my);
+    } else {
+      flashCol="#2bff6a"; flashA=.62; shake=Math.max(shake,16);
+      fx.push({k:"bolt",x1:mx,y1:my,x2:casting.tx,y2:casting.ty,x:mx,y:my,t:0,life:1});
+      if(window.VM3D && VM3D.setCastGlow) VM3D.setCastGlow(1.6, mx, my);
+      casting=null;
+    }
+  }
+  stepFx();
+
+  bot.vx+=(bot.hx-bot.x)*.055; bot.vy+=(bot.hy-bot.y)*.055;
+  bot.vx*=.86; bot.vy*=.86; bot.x+=bot.vx; bot.y+=bot.vy;
+  bot.angVel+=-bot.ang*.07; bot.angVel*=.87; bot.ang+=bot.angVel;
+  bot.squash+=(1-bot.squash)*.16; bot.flash*=.86;
+
+  drawSmoke();
+  drawBot();
+  drawFx();                                   // updates the glow layer + solids
+  ctx.drawImage(gc, 0, 0, W, H);              // composite trails/glow on top
+  drawCursor(); drawChips(); drawWeaponBar();
+  const mdx=mx-lastMX, mdy=my-lastMY; lastMX=mx; lastMY=my;
+  swayX += (-mdx*0.55 - swayX*0.16) * 0.55;   // lag behind, then spring home
+  swayY += (-mdy*0.55 - swayY*0.16) * 0.55;
+  swayX*=0.90; swayY*=0.90;
+  if(recoil>.01) recoil*=.86;
+}
+requestAnimationFrame(frame);
+
+// ── input ──────────────────────────────────────────────────────────────────
+addEventListener("mousemove", e=>{ mx=e.clientX; my=e.clientY; });
+// Scroll was unusable on a trackpad — one flick blew through every weapon.
+// Accumulate to a threshold so one trackpad flick does not blow through every slot.
+let scrollAcc=0;
+addEventListener("wheel", e=>{ scrollAcc+=e.deltaY;
+  if(Math.abs(scrollAcc)>=90){ selectWeapon(weapon+(scrollAcc>0?1:-1)); scrollAcc=0; } },{passive:true});
+addEventListener("mousedown", e=>{
+  if(e.button!==0) return;
+  const hit=chipRects.find(r=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h);
+  if(hit){ sel=hit.i; return; }                 // picking a target isn't an attack
+  down=true;
+  if(W_().mode==="melee") return;
+  if(W_().mode!=="hold" && canFire()){ spend(); fire(); }
+});
+addEventListener("mouseup", ()=>{ down=false; });
+addEventListener("contextmenu", e=>e.preventDefault());
+addEventListener("auxclick", e=>{ if(e.button===1){ rope=null; window.whip.dismiss(); } });
+window.whip.onAnchor(r=>{ if(!rope||!r) return;
+  bot.hx=clamp(r.x+r.w/2,BOX_HW()+SAFE.l,W-BOX_HW()-SAFE.r);
+  bot.hy=clamp(r.y+r.h/2,BOX_HH()+SAFE.t,H-BOX_HH()-SAFE.b); });
+window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } selectWeapon(parseInt(k,10)-1); });
+window.whip.onShow(p=>{
+  sessions=(p&&p.sessions)||[]; sel=0;
+  if(p&&p.safe) SAFE=p.safe;
+  if(p&&p.cursor){ mx=p.cursor.x; my=p.cursor.y; }
+  bot.hx=W/2; bot.hy=(SAFE.t+H-SAFE.b)/2; bot.x=bot.hx; bot.y=bot.hy;
+  bot.vx=bot.vy=bot.ang=bot.angVel=0; bot.squash=1; bot.flash=0; bot.hits=0;
+  bot.rigid=0; bot.burn=0; bot.bubble=""; fx.length=0; shake=0; flashA=0;
+  strikeAt=0; lastCrack=0; casting=null; saberOn=0; saberTipPrev=null; ropeSpawn();
+  WEAPONS.forEach((w,i)=>{ ammo[i].mag=w.mag; ammo[i].res=w.res; });   // fresh loadout
+  reloadUntil=0; lastShot=0; hudUntil=performance.now()+2600;
+});
+</script>
