@@ -12,6 +12,9 @@
 #   whip -b "msg"              block that session's NEXT tool call instead
 #   whip <preset>              send a named intervention (whip presets)
 #   whip presets               list them
+#   whip verify "<cmd>"        set this directory's verifier (runs after edits)
+#   whip verify off|status     stop it / show it
+#   whip verify examples       what is worth checking (and what is not)
 #   whip status | clear
 #
 # <target> is a name, a list number, or the start of a session id.
@@ -90,6 +93,56 @@ case "${1-ls}" in
     jq --arg n "$lbl" '.name=$n' "$REG/$id.json" > "$tmp" && mv "$tmp" "$REG/$id.json" \
       || { rm -f "$tmp"; echo "could not write name"; exit 1; }
     echo "named ${id:0:8} -> $lbl"; exit 0 ;;
+  verify)
+    CFG="$DIR/verify.json"; [ -f "$CFG" ] || echo '{}' > "$CFG"
+    root="$PWD"
+    case "${2-status}" in
+      examples)
+        cat <<'EX'
+  Weakest to strongest. Pick the strongest one you can actually run.
+
+  style       npx prettier --check .            catches nothing that matters
+  types       npx tsc --noEmit                  real, but shallow
+  build       npm run build                     catches more
+  BOOTS       curl -sf localhost:3000 >/dev/null      <- does it even respond
+  RUNS        node scripts/smoke.mjs            <- load the page, fail on console errors
+  LOOKS RIGHT node scripts/shot.mjs && compare  <- render it and diff the pixels
+
+  The last three are the ones that catch real bugs. A syntax check passes on an
+  app that does not start; this repo's own overlay once passed `node --check`
+  with four functions missing and every weapon broken.
+EX
+        exit 0 ;;
+      status)
+        jq -r 'to_entries[] | "  \(.key)\n    $ \(.value.cmd)   (max \(.value.max) retries, \(.value.debounce)s debounce)"' "$CFG"
+        [ "$(jq 'length' "$CFG")" = "0" ] && echo "  no verifiers set"
+        for f in "$DIR"/verify-state/*.json; do [ -e "$f" ] || continue
+          printf '  %s: %s consecutive failures%s\n' "$(basename "$f" .json | cut -c1-8)" \
+            "$(jq -r '.fails' "$f")" "$([ "$(jq -r '.silenced' "$f")" = true ] && echo ' (silenced)')"; done
+        exit 0 ;;
+      off)
+        tmp=$(mktemp); jq --arg d "$root" 'del(.[$d])' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+        echo "verifier removed for $root"; exit 0 ;;
+      *)
+        cmd="$2"; max="${3:-3}"
+        tmp=$(mktemp)
+        jq --arg d "$root" --arg c "$cmd" --argjson m "$max" \
+          '.[$d]={cmd:$c, max:$m, debounce:20}' "$CFG" > "$tmp" && mv "$tmp" "$CFG"
+        # Karpathy's AutoResearch split: the agent edits train.py, never
+        # prepare.py. An agent that can edit its own verifier will eventually
+        # lower the bar instead of clearing it — so deny it the file and the
+        # command. Permission rules gate the agent's tool calls, not your shell,
+        # so you can still run `whip verify off` yourself.
+        S="$HOME/.claude/settings.json"; [ -f "$S" ] || echo '{}' > "$S"
+        tmp2=$(mktemp)
+        jq --arg f "Edit($CFG)" --arg b "Bash(whip verify:*)" \
+           '.permissions.deny = ((.permissions.deny // []) + [$f,$b] | unique)' "$S" > "$tmp2" \
+           && mv "$tmp2" "$S"
+        echo "verifier for $root:"; echo "  \$ $cmd"
+        echo "  runs after Write/Edit, 20s debounce, gives up after $max consecutive failures"
+        echo "  agents are now denied edit access to it, and denied 'whip verify'"
+        exit 0 ;;
+    esac ;;
   presets)
     jq -r 'to_entries[] | "  \(.key|.+"            "|.[0:11])  \(.value.label)"' "$PRESETS"
     echo; echo "  whip cause          # or any of the above"

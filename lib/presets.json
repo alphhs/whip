@@ -1,7 +1,7 @@
 {
   "next": {
     "label": "move on",
-    "text": "Move on — you are re-reading things you have already read. This targets redundancy only: if you have not established the CAUSE of something, finding it is the next step, not a detour."
+    "text": "Move on \u2014 you are re-reading things you have already read. This targets redundancy only: if you have not established the CAUSE of something, finding it is the next step, not a detour."
   },
   "scope": {
     "label": "cut scope",
@@ -9,7 +9,7 @@
   },
   "commit": {
     "label": "commit",
-    "text": "Stop weighing alternatives and carry one approach through. Commit to a direction, not to a guess — if the cause is not established, establishing it IS the direction."
+    "text": "Stop weighing alternatives and carry one approach through. Commit to a direction, not to a guess \u2014 if the cause is not established, establishing it IS the direction."
   },
   "approach": {
     "label": "change approach",
@@ -23,14 +23,13 @@
     "label": "start clean",
     "text": "Throw away what you have built here and start clean."
   },
-
   "cause": {
     "label": "find the cause",
-    "text": "You may be patching a symptom. Before changing anything else, state the MECHANISM: what specifically produces this behaviour, and what evidence shows it. If you cannot say why the current code does what it does, you have not found the bug yet — a fix that works without a known cause is a coincidence."
+    "text": "You may be patching a symptom. Before changing anything else, state the MECHANISM: what specifically produces this behaviour, and what evidence shows it. If you cannot say why the current code does what it does, you have not found the bug yet \u2014 a fix that works without a known cause is a coincidence."
   },
   "instrument": {
     "label": "instrument it",
-    "text": "Stop reasoning about candidate causes and eliminating them one by one. Capture the actual behaviour — log it, print it, diff it, render it, dump the payload — and work from what you observe instead of what you infer."
+    "text": "Stop reasoning about candidate causes and eliminating them one by one. Capture the actual behaviour \u2014 log it, print it, diff it, render it, dump the payload \u2014 and work from what you observe instead of what you infer."
   },
   "prove": {
     "label": "prove it",
@@ -42,10 +41,18 @@
   },
   "unknowns": {
     "label": "surface unknowns",
-    "text": "List what you are currently assuming and do not know. For each, say whether being wrong would change what you build. Ask me about the ones that would — now, while I am here, not as caveats at the end."
+    "text": "List what you are currently assuming and do not know. For each, say whether being wrong would change what you build. Ask me about the ones that would \u2014 now, while I am here, not as caveats at the end."
   },
   "ask": {
     "label": "ask me",
     "text": "If any decision would change what you build, ask me now. I am at the keyboard; interrupting me is cheap right now and guessing is not."
+  },
+  "harness": {
+    "label": "make it checkable",
+    "text": "Before going further, make this checkable. Write the smallest command that FAILS when the thing is wrong and PASSES when it is right \u2014 a script that loads the page and exits non-zero on a console error, a curl that proves the server answers, a render-and-diff. Not a lint or a typecheck: those pass on an app that does not start. Then run it, and keep running it. Generation is cheap; this loop only moves as fast as its check. If you cannot make it checkable, say why before writing more code."
+  },
+  "scratch": {
+    "label": "work in scratch",
+    "text": "Do this in a scratch space, not in the real tree. Churn there freely, and promote only the artifact that survives your own check back into the project \u2014 so a failed attempt costs nothing to throw away and leaves nothing behind."
   }
 }

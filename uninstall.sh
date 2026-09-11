@@ -4,7 +4,7 @@ set -euo pipefail
 SETTINGS="${HOME}/.claude/settings.json"
 "${HOME}/.local/bin/whipclaude" stop 2>/dev/null || true
 rm -f "${HOME}/.local/bin/whip" "${HOME}/.local/bin/whipclaude"
-rm -f "${HOME}/.claude/hooks/whip" "${HOME}/.claude/hooks/whip-block.sh" "${HOME}/.claude/hooks/whip-register.sh"
+rm -f "${HOME}/.claude/hooks/whip" "${HOME}/.claude/hooks/whip-block.sh" "${HOME}/.claude/hooks/whip-register.sh" "${HOME}/.claude/hooks/whip-verify.sh"
 if [ -f "$SETTINGS" ]; then
   cp "$SETTINGS" "$SETTINGS.bak-whipclaude-uninstall"
   python3 - "$SETTINGS" <<'PY'

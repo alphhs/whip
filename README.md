@@ -73,7 +73,8 @@ they force the gap between *observed* and *inferred* into the open:
 ```bash
 whip cause        # "state the mechanism before changing anything else"
 whip prove        # "name the command you ran for each claim"
-whip presets      # all 12
+whip harness      # "make it checkable before you write more"
+whip presets      # all 14
 ```
 
 The other six are direction rather than rigour: `next` `scope` `commit`
@@ -127,6 +128,32 @@ What a hit never says is *hurry*. See
   <img src="docs/saber.png" width="49%">
   <img src="docs/flame.png" width="49%">
 </p>
+
+## Close the loop
+
+Generation got cheap; the loop now runs at the speed of its *verification* half.
+So point a verifier at your work and let failures arrive mid-turn:
+
+```bash
+whip verify "node scripts/smoke.mjs"     # runs after every Write/Edit
+whip verify examples                     # what is worth checking, weakest to strongest
+```
+
+Passing is **silent**. Failing puts the real output into that session between tool
+calls. After 3 consecutive failures it stops and tells the session to escalate
+rather than keep editing around it — the retry budget is bounded on purpose.
+
+What you check matters far more than that you check. `tsc` and `eslint` pass on
+an application that does not start: this repo's own overlay once passed
+`node --check` with four functions missing and every weapon broken. The checks
+that catch real bugs are the ones that *run* the thing — boot it, load it, render
+it and diff the pixels.
+
+**The agent cannot edit its own verifier.** Setting one adds deny rules for the
+config file and the `whip verify` command, so a session that cannot clear the bar
+cannot lower it either. Permission rules gate the agent, not your shell, so you
+can still change it yourself. (Same split as Karpathy's AutoResearch agent, which
+may edit `train.py` but never `prepare.py`, the eval utilities.)
 
 ## How it works
 

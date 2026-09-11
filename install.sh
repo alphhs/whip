@@ -19,9 +19,11 @@ mkdir -p "$HOOK_DIR"
 install -m 755 "$APP_DIR/hooks/whip"           "$HOOK_DIR/whip"
 install -m 755 "$APP_DIR/hooks/whip-block.sh"  "$HOOK_DIR/whip-block.sh"
 install -m 755 "$APP_DIR/hooks/whip-register.sh" "$HOOK_DIR/whip-register.sh"
+install -m 755 "$APP_DIR/hooks/whip-verify.sh"   "$HOOK_DIR/whip-verify.sh"
 
 echo "==> cli -> $BIN_DIR"
-mkdir -p "$BIN_DIR"
+mkdir -p "$BIN_DIR" "$HOME/.claude/whip"
+install -m 644 "$APP_DIR/lib/presets.json" "$HOME/.claude/whip/presets.json"
 install -m 755 "$APP_DIR/bin/whip" "$BIN_DIR/whip"
 sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__APP_NAME__|$APP_NAME|g" \
     "$APP_DIR/bin/whipclaude" > "$BIN_DIR/whipclaude"
@@ -43,6 +45,11 @@ def add(event, cmd):
 a = add("PostToolUse",  "~/.claude/hooks/whip")
 b = add("PreToolUse",   "~/.claude/hooks/whip-block.sh")
 c = add("SessionStart", "~/.claude/hooks/whip-register.sh")
+# the verifier only runs on edits, and only if you set one
+lst = h.setdefault("PostToolUse", [])
+if not any("whip-verify" in x["command"] for e in lst for x in e.get("hooks", [])):
+    lst.append({"matcher": "Write|Edit", "hooks": [{"type": "command",
+                "command": "~/.claude/hooks/whip-verify.sh", "timeout": 130}]})
 p.write_text(json.dumps(d, indent=2))
 print(f"   PostToolUse:  {'added' if a else 'already present'}")
 print(f"   PreToolUse:   {'added' if b else 'already present'}")
