@@ -37,7 +37,7 @@ if [ "$SRC" = "game" ]; then
   # Each weapon maps to ONE intent, so picking it up is a deliberate choice —
   # not a random slogan. And a hit is proof the user is at the keyboard right
   # now, which is the part worth acting on: asking them costs almost nothing.
-  CTX="[WHIP] The user picked the ${WPN:-whip} in whipclaude and hit you with it. That is a deliberate choice of one specific steer: \"$TXT\" — treat it as that instruction and nothing more. It says nothing about speed or rigour: keep reading what you need to read and keep verifying. Also: they are watching this turn live, so if a decision would change what you build, ask them NOW rather than guessing and flagging it at the end."
+  CTX="[WHIP] The user picked the ${WPN:-whip} in whipclaude and hit you with it. That is a deliberate choice of one specific steer: \"$TXT\" — treat it as that instruction and nothing more. It says nothing about speed or rigour: keep reading what you need to read and keep verifying. You are the only one who knows which kind of slow you are being — redundant re-reading, or an investigation that has not reached its cause yet. This never asks you to stop the second kind. Also: they are watching this turn live, so if a decision would change what you build, ask them NOW rather than guessing and flagging it at the end."
 else
   CTX="[WHIP] The user sent this mid-turn, without interrupting you: \"$TXT\". Treat it as a message from them and use your normal judgement about it — including whether you still need to read or verify something."
 fi
