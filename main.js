@@ -173,10 +173,22 @@ ipcMain.handle('presets', () => {
 });
 
 ipcMain.handle('sounds', () => {
+  // normalised .wav from scripts/prep-sounds.py, plus each sample's measured
+  // brightness so playback can even them out
   const dir = path.join(__dirname, 'sounds');
-  return ['A','B','C','D','E'].map(n => {
-    try { return fs.readFileSync(path.join(dir, n + '.mp3')); } catch { return null; }
-  }).filter(Boolean);
+  let profile = { target: 2000, brightness: {} };
+  try { profile = JSON.parse(fs.readFileSync(path.join(dir, 'profile.json'), 'utf8')); } catch {}
+  const names = Object.keys(profile.brightness).sort();
+  const files = names.map(n => { try { return fs.readFileSync(path.join(dir, n + '.wav')); } catch { return null; } });
+  if (files.every(Boolean) && files.length) {
+    return { files, names, profile };
+  }
+  return (() => {
+  const dir = path.join(__dirname, 'sounds');
+  return { files: ['A','B','C','D','E'].map(n => {
+      try { return fs.readFileSync(path.join(dir, n + '.mp3')); } catch { return null; }
+    }).filter(Boolean), names: ['A','B','C','D','E'], profile };
+  })();
 });
 
 ipcMain.on('dismiss', hideOverlay);

@@ -396,12 +396,15 @@ function muzzle(){                      // where a projectile is born
 }
 
 // ── audio ──────────────────────────────────────────────────────────────────
-let actx=null, WHIPBUF=[];
+let actx=null, WHIPBUF=[], WHIP_TARGET=2000;
 (async()=>{ try{
-  const raw=await window.whip.sounds();
+  const r=await window.whip.sounds();
+  const files=Array.isArray(r)?r:r.files, names=(r&&r.names)||[], prof=(r&&r.profile)||{};
+  WHIP_TARGET=prof.target||2000;
   actx=new (window.AudioContext||window.webkitAudioContext)();
-  WHIPBUF=await Promise.all(raw.map(u=>actx.decodeAudioData(
+  const bufs=await Promise.all(files.map(u=>actx.decodeAudioData(
     u.buffer.slice(u.byteOffset,u.byteOffset+u.byteLength))));
+  WHIPBUF=bufs.map((buf,i)=>({ buf, bright:(prof.brightness||{})[names[i]] || WHIP_TARGET }));
 }catch(e){} })();
 const now=()=>actx.currentTime;
 function env(node,peak,dur,t0){ const g=actx.createGain();
@@ -419,14 +422,21 @@ function sfx(kind,power=1,pan=0,horiz=1){
     b.frequency.setValueAtTime(f0,t); if(f1)b.frequency.exponentialRampToValueAtTime(f1,t+.15);
     if(q)b.Q.value=q; return b;};
   if(kind==="whip"&&WHIPBUF.length){
-    // four drivers, not one: speed sets pitch, the lash ANGLE sets brightness
-    // (a sideways crack is sharp, a downward one is dull), position pans it,
-    // and a little jitter keeps five samples from ever repeating audibly.
-    const s=actx.createBufferSource(); s.buffer=pick(WHIPBUF);
-    s.playbackRate.value=.86+power*.40+horiz*.06+rand(-.055,.055);
-    const lp=F("lowpass", 2500 + horiz*6200 + power*4400 + rand(-500,500));
-    lp.Q.value=0.8;
-    s.connect(lp); env(lp, clamp(.28+power*.72,.2,1)*rand(.92,1), .26, t).connect(P);
+    const W=pick(WHIPBUF);
+    const s=actx.createBufferSource(); s.buffer=W.buf;
+    // Pitch stays NARROW. The old range was 0.925-1.375 — nearly a perfect
+    // fifth — which made the same whip sound like different objects. Force
+    // belongs in level and brightness, not in pitch.
+    s.playbackRate.value = 0.97 + power*0.10 + rand(-0.018, 0.018);
+    // even the samples out: a dull one gets lifted, a bright one damped, so
+    // picking at random between five recordings stays coherent
+    const hs=actx.createBiquadFilter(); hs.type="highshelf"; hs.frequency.value=2200;
+    hs.gain.value = clamp(20*Math.log10(WHIP_TARGET/(W.bright||WHIP_TARGET)), -7, 7);
+    // THEN the performance varies: sideways cracks bright, downward ones dull
+    const lp=F("lowpass", 3200 + horiz*5200 + power*3600 + rand(-250,250));
+    lp.Q.value=0.7;
+    s.connect(hs); hs.connect(lp);
+    env(lp, clamp(.30+power*.70,.22,1)*rand(.95,1), .24, t).connect(P);
     s.start(t); return; }
   if(kind==="gun"){ const s=noise(.18,7), lp=F("lowpass",7000,500);
     s.connect(lp); env(lp,.85,.16,t).connect(P); s.start(t);

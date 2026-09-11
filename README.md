@@ -213,6 +213,26 @@ If you want an agent to move faster with less checking, say it yourself. That's
 a tradeoff worth making deliberately, and it shouldn't arrive as a side effect of
 hitting something with a lightsaber.
 
+## Sound
+
+Five crack samples, picked at random and varied per hit. Bring your own and run:
+
+```bash
+python3 scripts/prep-sounds.py
+```
+
+Raw samples are rarely consistent with each other — the set used here spanned
+**1375–3442Hz** in brightness, **49–195ms** in attack and 1.5x in level. Random
+picking between those, then pitch-shifting on top, is what makes a crack sound
+like five different objects. The script trims each to just before its transient
+(so the crack lands *when you swing*), matches levels, and records each sample's
+brightness to `sounds/profile.json` so playback can shelf-correct it toward the
+median.
+
+Pitch variation is deliberately narrow — about two semitones. Force is carried by
+level and brightness instead; a wide pitch range reads as a different whip, not a
+harder one.
+
 ## Assets
 
 Models and audio live in `assets/`. To swap one, drop a `.glb` in and add a row
