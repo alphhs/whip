@@ -146,17 +146,17 @@ shows what that session does **as it happens** — reading tools in amber, actin
 tools in white, and a marker on the line where your hit arrived:
 
 ```
-                    LIVE
-                    Grep
-                    Read
-          — WHIP LANDED —
-                    Edit
-                    Bash
-    since hit: 4 calls, 25% reading
+LIVE · CATERING
+The 500s come from ES_AUTH — guest credentials were retired on the test cluster.
+Bash  curl -s -o /dev/null -w '%{http_code}' localhost:4012/mn/s
+— WHIP LANDED —
+Read  /Users/x/catering/server/config.mjs
+Confirmed: config.mjs points at elastic.test which 403s. Pointing it at elastic8.
 ```
 
-If a steer that says *stop re-reading* works, that column visibly changes colour
-after the marker. If it doesn't, you can see that too, while it's happening.
+Its actual prose, its actual commands, its actual file paths — with the marker
+showing where your hit landed. Knowing that you whipped something tells you
+nothing; seeing what it said next tells you everything.
 
 ## Did it help, over time?
 

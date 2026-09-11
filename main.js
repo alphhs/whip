@@ -30,7 +30,8 @@ function liveSessions() {
         const idle = now - (r.seen || 0);
         const score = readScore(r.id);
         return { id:r.id, cwd:r.cwd || '?', name:(r.name || (r.cwd||'?').split('/').pop()),
-                 ts:r.seen || 0, idle, busy: idle < 8, attached: r.id === attached, sore, score };
+                 ts:r.seen || 0, idle, busy: idle < 8, attached: r.id === attached,
+                 sore, score, transcript: r.transcript || '' };
       })
       .filter(Boolean)
       .sort((a,b) => (b.attached?1:0)-(a.attached?1:0) || b.ts - a.ts);
@@ -239,8 +240,16 @@ function startFeed(sess) {
       if (d.type === 'assistant') {
         const c = (d.message || {}).content;
         if (Array.isArray(c)) for (const b of c) {
-          if (b && b.type === 'tool_use') out.push({ kind: 'tool', name: b.name });
-          else if (b && b.type === 'text' && b.text && b.text.trim()) out.push({ kind: 'say' });
+          if (b && b.type === 'tool_use') {
+            // the ARGUMENT is the interesting part, not the tool's name
+            const i = b.input || {};
+            const subj = i.command || i.file_path || i.pattern || i.url ||
+                         i.path || i.description || i.prompt || '';
+            out.push({ kind: 'tool', name: b.name,
+                       subj: String(subj).replace(/\s+/g, ' ').slice(0, 150) });
+          } else if (b && b.type === 'text' && b.text && b.text.trim()) {
+            out.push({ kind: 'say', text: b.text.replace(/\s+/g, ' ').trim().slice(0, 300) });
+          }
         }
       }
     }

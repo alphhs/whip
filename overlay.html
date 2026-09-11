@@ -959,40 +959,54 @@ function drawChips(){
 // tools in white — so a steer that says "stop re-reading" either visibly
 // changes the colour of this column or it does not.
 const READY_TOOLS = {Read:1,Grep:1,Glob:1,WebFetch:1,WebSearch:1,ToolSearch:1,NotebookRead:1};
+function wrapTo(txt, maxw){
+  const out=[]; let line="";
+  for(const w of txt.split(" ")){
+    const t = line ? line+" "+w : w;
+    if(ctx.measureText(t).width > maxw){ if(line) out.push(line); line=w; } else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+
+// What the session is actually SAYING and DOING, live. Tool names alone tell
+// you nothing you did not already know; the argument and the prose do.
 function drawFeed(){
   if(!feed.length) return;
-  const t=performance.now(), x=W-34-SAFE.r, y0=SAFE.t+86;
-  ctx.textAlign="right"; ctx.textBaseline="middle";
-  ctx.font="600 10px ui-monospace,Menlo,monospace";
-  ctx.fillStyle="rgba(240,177,50,.45)";
-  ctx.fillText("LIVE", x, y0-14);
-  let n=0;
-  for(let i=Math.max(0,feed.length-10); i<feed.length; i++){
-    const e=feed[i], y=y0+n*15, age=clamp(1-(t-e.t)/26000,0.25,1);
-    const after = feedSince && e.t>=feedSince;
-    if(e.kind==="whip"){
-      ctx.fillStyle=`rgba(217,119,87,${age})`; ctx.font="700 10px ui-monospace,Menlo,monospace";
-      ctx.fillText("\u2014 WHIP LANDED \u2014", x, y);
-    } else {
-      ctx.font=(after?"700 ":"600 ")+"10px ui-monospace,Menlo,monospace";
-      const lbl = e.kind==="say" ? "(writing)" : e.name;
-      const reading = READY_TOOLS[e.name];
-      ctx.fillStyle = e.kind==="say" ? `rgba(255,255,255,${age*.4})`
-                    : reading ? `rgba(240,177,50,${age})` : `rgba(255,255,255,${age*.9})`;
-      ctx.fillText(lbl, x, y);
+  const t=performance.now();
+  const PW=Math.min(560, W*0.38), x=SAFE.l+26, bottom=H-SAFE.b-110;
+  const rows=[];
+  for(let i=feed.length-1; i>=0 && rows.length<16; i--){
+    const e=feed[i];
+    if(e.kind==="whip"){ rows.push({txt:"\u2014 WHIP LANDED \u2014", c:"#D97757", b:1, t:e.t}); continue; }
+    if(e.kind==="say"){
+      ctx.font="500 12px ui-sans-serif,-apple-system,system-ui,sans-serif";
+      const ls=wrapTo(e.text, PW-14);
+      for(let k=ls.length-1;k>=0 && rows.length<16;k--) rows.push({txt:ls[k], c:"#dfe3e6", t:e.t, say:1});
+      continue;
     }
-    n++;
+    ctx.font="600 11px ui-monospace,SFMono-Regular,Menlo,monospace";
+    const head=e.name+(e.subj?"  "+e.subj:"");
+    const ls=wrapTo(head, PW-14);
+    for(let k=ls.length-1;k>=0 && rows.length<16;k--)
+      rows.push({txt:ls[k], c:(k===0?"#f0b132":"rgba(240,177,50,.6)"), t:e.t, mono:1});
   }
-  // did the mix change after the hit?
-  if(feedSince){
-    const post=feed.filter(e=>e.kind==="tool" && e.t>=feedSince);
-    if(post.length>=3){
-      const r=post.filter(e=>READY_TOOLS[e.name]).length/post.length;
-      ctx.font="600 10px ui-monospace,Menlo,monospace";
-      ctx.fillStyle="rgba(240,177,50,.6)";
-      ctx.fillText(`since hit: ${post.length} calls, ${Math.round(r*100)}% reading`, x, y0+n*15+8);
-    }
-  }
+  const lh=16, top=bottom-rows.length*lh;
+  ctx.save();
+  ctx.fillStyle="rgba(8,7,6,.62)";
+  ctx.beginPath(); ctx.roundRect(x-12, top-22, PW, rows.length*lh+34, 8); ctx.fill();
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.font="600 10px ui-monospace,Menlo,monospace"; ctx.fillStyle="rgba(240,177,50,.5)";
+  const who=sessions[sel]?sessions[sel].name:"";
+  ctx.fillText("LIVE \u00b7 "+who.toUpperCase(), x, top-11);
+  rows.reverse().forEach((r,k)=>{
+    ctx.globalAlpha=clamp(1-(t-r.t)/70000,0.3,1);
+    ctx.font = r.b ? "700 11px ui-monospace,Menlo,monospace"
+             : r.mono ? "600 11px ui-monospace,SFMono-Regular,Menlo,monospace"
+             : "500 12px ui-sans-serif,-apple-system,system-ui,sans-serif";
+    ctx.fillStyle=r.c; ctx.fillText(r.txt, x, top+k*lh+6);
+  });
+  ctx.globalAlpha=1; ctx.restore();
 }
 
 function drawWeaponBar(){
