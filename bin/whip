@@ -127,6 +127,6 @@ fi
 
 for id in "${ids[@]}"; do
   [ -n "$id" ] || continue
-  printf '%s' "$MSG" > "$DIR/$MODE/$id"
+  jq -n --arg t "$MSG" '{text:$t, src:"user"}' > "$DIR/$MODE/$id"
   printf '%s -> %s: %s\n' "$([ "$MODE" = b ] && echo 'BLOCK' || echo 'whip')" "$(label "$id")" "$MSG"
 done

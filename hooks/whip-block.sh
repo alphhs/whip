@@ -4,7 +4,9 @@ DIR="$HOME/.claude/whip"
 PAY=$(cat); SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty')
 [ -n "$SID" ] || exit 0
 F="$DIR/b/$SID"; [ -f "$F" ] || exit 0
-MSG=$(cat "$F" 2>/dev/null); rm -f "$F"; [ -n "$MSG" ] || exit 0
+RAW=$(cat "$F" 2>/dev/null); rm -f "$F"; [ -n "$RAW" ] || exit 0
+MSG=$(printf '%s' "$RAW" | jq -r 'if type=="object" then .text else . end' 2>/dev/null) || MSG="$RAW"
+[ -n "$MSG" ] || exit 0
 BANNER=$(python3 "$HOME/.claude/hooks/pet.py" --session "$SID" --kind block --msg "$MSG" 2>/dev/null || echo "whip BLOCK: $MSG")
 jq -n --arg m "$MSG" --arg b "$BANNER" '{hookSpecificOutput:{hookEventName:"PreToolUse",
   permissionDecision:"deny",

@@ -443,7 +443,7 @@ function damage(x,y,vx,vy,power,opts={}){
     const msg=pick(W_().msg);
     bot.bubble=msg; bot.bubbleUntil=t+1600;
     const s=sessions[sel];
-    if(s) window.whip.crack(s.id, msg);
+    if(s) window.whip.crack(s.id, msg, W_().name);
   }
 }
 const inBox=(x,y)=>Math.abs(x-bot.x)<=BOX_HW() && Math.abs(y-bot.y)<=BOX_HH();

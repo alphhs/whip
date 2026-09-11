@@ -149,12 +149,15 @@ function toggle() {
 
 ipcMain.on('crack', (_e, payload) => {
   try {
-    const { sessionId, msg } = payload || {};
+    const { sessionId, msg, weapon } = payload || {};
     const id = sessionId || (liveSessions()[0] || {}).id;
     if (!id) return;                           // nothing running; nothing to hit
     fs.mkdirSync(path.join(WHIP_DIR, 's'), { recursive: true });
     fs.mkdirSync(path.join(WHIP_DIR, 'pet'), { recursive: true });
-    fs.writeFileSync(path.join(WHIP_DIR, 's', id), String(msg || 'FASTER'));
+    // Tagged src:game so the hook never presents a canned slogan as something
+    // the user said. Only words the user actually typed get src:user.
+    fs.writeFileSync(path.join(WHIP_DIR, 's', id), JSON.stringify({
+      text: String(msg || 'FASTER'), src: 'game', weapon: String(weapon || 'whip') }));
     // soreness lives with the session, so it survives the overlay closing
     const pf = path.join(WHIP_DIR, 'pet', id);
     let n = 0; try { n = Number(fs.readFileSync(pf,'utf8').split('\t')[0]) || 0; } catch {}

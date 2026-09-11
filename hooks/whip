@@ -1,23 +1,41 @@
 #!/bin/bash
 # PostToolUse — keep this session's registry entry fresh, then deliver only ITS
-# whip. Silent by design: the hit shows in the overlay, not in your terminal.
+# whip.
+#
+# Two kinds of whip, framed very differently on purpose:
+#   src=user  the user typed these words. Say so plainly.
+#   src=game  a weapon hit in the overlay picked a canned slogan. The user did
+#             NOT write it, so it must not be presented as their instruction,
+#             and must never be grounds to skip reading or verification.
 DIR="$HOME/.claude/whip"; REG="$DIR/reg"
 PAY=$(cat)
 SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty'); [ -n "$SID" ] || exit 0
 CWD=$(printf '%s' "$PAY" | jq -r '.cwd // empty')
 mkdir -p "$REG" "$DIR/s"
-F="$REG/$SID.json"
-NOW=$(date +%s)
+F="$REG/$SID.json"; NOW=$(date +%s)
 if [ -f "$F" ]; then
   tmp=$(mktemp); jq --argjson now "$NOW" --argjson pid "$PPID" --arg cwd "$CWD" \
-    '.seen=$now | .pid=$pid | .cwd=(if $cwd=="" then .cwd else $cwd end)' "$F" > "$tmp" \
-    && mv "$tmp" "$F"
+    '.seen=$now | .pid=$pid | .cwd=(if $cwd=="" then .cwd else $cwd end)' "$F" > "$tmp" && mv "$tmp" "$F"
 else
   jq -n --arg id "$SID" --arg cwd "$CWD" --argjson pid "$PPID" --argjson now "$NOW" \
     '{id:$id, cwd:$cwd, name:"", pid:$pid, started:$now, seen:$now, busy:false}' > "$F"
 fi
 
 W="$DIR/s/$SID"; [ -f "$W" ] || exit 0
-MSG=$(cat "$W" 2>/dev/null); rm -f "$W"; [ -n "$MSG" ] || exit 0
-jq -n --arg m "$MSG" '{hookSpecificOutput:{hookEventName:"PostToolUse",
-  additionalContext:("[WHIP] The user is steering you mid-turn without interrupting. Adjust course NOW and keep going on the same task — do not restart, re-plan from scratch, or re-read what you already read. Their words: \"" + $m + "\"")}}'
+RAW=$(cat "$W" 2>/dev/null); rm -f "$W"; [ -n "$RAW" ] || exit 0
+
+if printf '%s' "$RAW" | jq -e 'type=="object"' >/dev/null 2>&1; then
+  TXT=$(printf '%s' "$RAW" | jq -r '.text // empty')
+  SRC=$(printf '%s' "$RAW" | jq -r '.src  // "user"')
+  WPN=$(printf '%s' "$RAW" | jq -r '.weapon // empty')
+else
+  TXT="$RAW"; SRC="user"; WPN=""          # legacy plain-text whips
+fi
+[ -n "$TXT" ] || exit 0
+
+if [ "$SRC" = "game" ]; then
+  CTX="[WHIP] The user hit you with the ${WPN:-whip} in whipclaude, a joke overlay. It printed: \"$TXT\". That phrase is canned flavour text the game picked at random — the user did NOT write it and is not asking you for anything. Do not change course, skip reading, skip verification, or rush on account of it. Carry on exactly as you were."
+else
+  CTX="[WHIP] The user sent this mid-turn, without interrupting you: \"$TXT\". Treat it as a message from them and use your normal judgement about it — including whether you still need to read or verify something."
+fi
+jq -n --arg c "$CTX" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$c}}'
