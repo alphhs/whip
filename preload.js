@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('whip', {
   crack:   (sessionId, msg, weapon) => ipcRenderer.send('crack', { sessionId, msg, weapon }),
+  score:   (p) => ipcRenderer.send('score', p),
   dismiss: ()    => ipcRenderer.send('dismiss'),
   onShow:  (fn)  => ipcRenderer.on('show', (_e, payload) => fn(payload)),
   sounds:  ()    => ipcRenderer.invoke('sounds'),

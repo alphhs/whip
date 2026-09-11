@@ -585,6 +585,8 @@ function ropeHit(){ const t=performance.now(); if(t-lastCrack<200) return;
         damage(x,y,dx,dy,clamp(sp/40,.4,1)*(held?1.7:1),{col:"#e8ded0"});
         if(!held && sp > R.hitSpeed*1.6){                    // a fast lash CATCHES it
           bot.snareUntil = t + SNARE_MS; bot.struggle = 0; bot.caught++;
+          bot.heldFrom = t;
+          { const sx=sessions[sel]; if(sx) window.whip.score({sessionId:sx.id, caught:1}); }
           sfx("clash",.7,(x/W-.5)*1.4); shake=Math.max(shake,9);
         } else if(held){ bot.snareUntil += 420; }            // hits buy you more time
         return; } } } }
@@ -1011,7 +1013,11 @@ function drawWeaponBar(){
                40+SAFE.l, H-8-SAFE.b);
   ctx.textAlign="center";
   ctx.fillStyle="rgba(240,177,50,.5)";
-  ctx.fillText(`caught ${bot.caught}   ·   got away ${bot.escapes}`, W/2, H-28-SAFE.b);
+  { const sc=(sessions[sel]&&sessions[sel].score)||{caught:0,escapes:0,bestHoldMs:0};
+    const tot=`caught ${sc.caught+bot.caught}   ·   got away ${sc.escapes+bot.escapes}`;
+    const best=Math.max(sc.bestHoldMs||0, bot.snareUntil>t&&bot.heldFrom ? t-bot.heldFrom : 0);
+    ctx.fillText(tot + (best>400 ? `   ·   best hold ${(best/1000).toFixed(1)}s` : ""),
+                 W/2, H-28-SAFE.b); }
   ctx.fillStyle="rgba(240,177,50,.18)"; ctx.fillRect(40+SAFE.l,H-84-SAFE.b,190,4);
   ctx.fillStyle = hp<30 ? "#e0502f" : AMBER; ctx.fillRect(40,H-84-SAFE.b,190*hp/100,4);
 
@@ -1110,6 +1116,9 @@ function frame(){
     a.panic = 1;
     if(a.struggle >= 1){                                     // it gets loose
       a.snareUntil=0; a.struggle=0; a.escapes++;
+      { const sx=sessions[sel];
+        if(sx) window.whip.score({sessionId:sx.id, escapes:1,
+                                  heldMs: a.heldFrom ? now2-a.heldFrom : 0}); }
       const hh = rope ? rope[0] : {x:mx,y:my};
       const ea=Math.atan2(a.y-hh.y, a.x-hh.x);
       a.vx += Math.cos(ea)*19; a.vy += Math.sin(ea)*19;
@@ -1167,11 +1176,19 @@ addEventListener("mousedown", e=>{
 });
 addEventListener("mouseup", ()=>{ down=false; });
 addEventListener("contextmenu", e=>e.preventDefault());
-addEventListener("auxclick", e=>{ if(e.button===1){ rope=null; window.whip.dismiss(); } });
+function flushHold(){            // a hold you never lose should still count
+  const t=performance.now();
+  if(bot.snareUntil>t && bot.heldFrom){
+    const sx=sessions[sel];
+    if(sx) window.whip.score({sessionId:sx.id, heldMs:t-bot.heldFrom});
+    bot.heldFrom=0;
+  }
+}
+addEventListener("auxclick", e=>{ if(e.button===1){ flushHold(); rope=null; window.whip.dismiss(); } });
 window.whip.onAnchor(r=>{ if(!rope||!r) return;
   bot.hx=clamp(r.x+r.w/2,BOX_HW()+SAFE.l,W-BOX_HW()-SAFE.r);
   bot.hy=clamp(r.y+r.h/2,BOX_HH()+SAFE.t,H-BOX_HH()-SAFE.b); });
-window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } selectWeapon(parseInt(k,10)-1); });
+window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } flushHold(); selectWeapon(parseInt(k,10)-1); });
 window.whip.onShow(p=>{
   sessions=(p&&p.sessions)||[];
   sel=Math.max(0, sessions.findIndex(s=>s.attached));
@@ -1182,7 +1199,7 @@ window.whip.onShow(p=>{
   if(p&&p.cursor){ mx=p.cursor.x; my=p.cursor.y; }
   bot.hx=W/2; bot.hy=(SAFE.t+H-SAFE.b)/2; bot.x=bot.hx; bot.y=bot.hy;
   bot.wx=bot.hx; bot.wy=bot.hy; bot.wanderT=0;
-  bot.snareUntil=0; bot.struggle=0; bot.panic=0; bot.caught=0; bot.escapes=0;
+  bot.snareUntil=0; bot.struggle=0; bot.panic=0; bot.caught=0; bot.escapes=0; bot.heldFrom=0;
   bot.vx=bot.vy=bot.ang=bot.angVel=0; bot.squash=1; bot.flash=0; bot.hits=0;
   bot.rigid=0; bot.burn=0; bot.bubble=""; fx.length=0; shake=0; flashA=0;
   strikeAt=0; lastCrack=0; casting=null; saberOn=0; saberTipPrev=null; ropeSpawn();

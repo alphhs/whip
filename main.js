@@ -28,8 +28,9 @@ function liveSessions() {
           sore = Math.max(0, (n || 0) - (last ? Math.floor((now - last)/600) : 0));
         } catch {}
         const idle = now - (r.seen || 0);
+        const score = readScore(r.id);
         return { id:r.id, cwd:r.cwd || '?', name:(r.name || (r.cwd||'?').split('/').pop()),
-                 ts:r.seen || 0, idle, busy: idle < 8, attached: r.id === attached, sore };
+                 ts:r.seen || 0, idle, busy: idle < 8, attached: r.id === attached, sore, score };
       })
       .filter(Boolean)
       .sort((a,b) => (b.attached?1:0)-(a.attached?1:0) || b.ts - a.ts);
@@ -189,6 +190,25 @@ ipcMain.handle('sounds', () => {
       try { return fs.readFileSync(path.join(dir, n + '.mp3')); } catch { return null; }
     }).filter(Boolean), names: ['A','B','C','D','E'], profile };
   })();
+});
+
+// Hunt record, per session, kept on disk. The in-overlay counters reset every
+// time you reopen it; these do not.
+const SCORE_DIR = () => path.join(WHIP_DIR, 'score');
+function readScore(id) {
+  try { return JSON.parse(fs.readFileSync(path.join(SCORE_DIR(), id + '.json'), 'utf8')); }
+  catch { return { caught: 0, escapes: 0, bestHoldMs: 0 }; }
+}
+ipcMain.on('score', (_e, p) => {
+  try {
+    const { sessionId, caught = 0, escapes = 0, heldMs = 0 } = p || {};
+    if (!sessionId) return;
+    fs.mkdirSync(SCORE_DIR(), { recursive: true });
+    const s0 = readScore(sessionId);
+    s0.caught += caught; s0.escapes += escapes;
+    s0.bestHoldMs = Math.max(s0.bestHoldMs || 0, Math.round(heldMs));
+    fs.writeFileSync(path.join(SCORE_DIR(), sessionId + '.json'), JSON.stringify(s0));
+  } catch {}
 });
 
 ipcMain.on('dismiss', hideOverlay);

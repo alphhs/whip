@@ -66,8 +66,11 @@ listing() {
     if   [ "$age" -lt 8 ];  then state=$'\033[32m● working\033[0m'
     elif [ "$age" -lt 300 ]; then state="○ idle ${age}s"
     else state="○ idle $((age/60))m"; fi
-    printf '%s %d) %-14s %-26s %b  %s\n' "$mark" "$i" \
-      "${name:--}" "$(basename "$cwd")" "$state" "${id:0:8}"
+    sc="$DIR/score/$id.json"
+    hunt=""
+    [ -f "$sc" ] && hunt="$(jq -r '"  caught \(.caught) / away \(.escapes)"' "$sc" 2>/dev/null)"
+    printf '%s %d) %-14s %-22s %b%s  %s\n' "$mark" "$i" \
+      "${name:--}" "$(basename "$cwd")" "$state" "$hunt" "${id:0:8}"
   done < <(live)
   [ "$i" -eq 0 ] && echo "  no live Claude Code sessions" && return
   [ -n "$att" ] && echo "  > attached" || echo "  (nothing attached — 'whip attach 1')"
