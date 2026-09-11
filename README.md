@@ -129,6 +129,16 @@ What a hit never says is *hurry*. See
   <img src="docs/flame.png" width="49%">
 </p>
 
+## It runs
+
+The bot does not sit still. It roams, bolts when your cursor gets within 380px,
+panics off the walls, leans into the run and slows as it takes damage. Landing
+the whip on something that is actively dodging is the whole point — the HUD
+tracks `landed 11/13 · 85% · streak 4 · best 6`, kept per session across
+sessions.
+
+Only a real swing counts. The lash trailing across it does not.
+
 ## Watch it land
 
 The overlay tails the target session's transcript, so the right-hand column

@@ -200,7 +200,7 @@ ipcMain.handle('sounds', () => {
 const SCORE_DIR = () => path.join(WHIP_DIR, 'score');
 function readScore(id) {
   try { return JSON.parse(fs.readFileSync(path.join(SCORE_DIR(), id + '.json'), 'utf8')); }
-  catch { return { caught: 0, escapes: 0, bestHoldMs: 0 }; }
+  catch { return { swings: 0, landed: 0, best: 0 }; }
 }
 // ── live feed ─────────────────────────────────────────────────────────────
 // Tail the target session's transcript so a hit can be watched landing: the
@@ -250,12 +250,13 @@ function startFeed(sess) {
 
 ipcMain.on('score', (_e, p) => {
   try {
-    const { sessionId, caught = 0, escapes = 0, heldMs = 0 } = p || {};
+    const { sessionId, swings = 0, landed = 0, streak = 0 } = p || {};
     if (!sessionId) return;
     fs.mkdirSync(SCORE_DIR(), { recursive: true });
     const s0 = readScore(sessionId);
-    s0.caught += caught; s0.escapes += escapes;
-    s0.bestHoldMs = Math.max(s0.bestHoldMs || 0, Math.round(heldMs));
+    s0.swings = (s0.swings || 0) + swings;
+    s0.landed = (s0.landed || 0) + landed;
+    s0.best   = Math.max(s0.best || 0, streak);
     fs.writeFileSync(path.join(SCORE_DIR(), sessionId + '.json'), JSON.stringify(s0));
   } catch {}
 });

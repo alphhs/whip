@@ -444,9 +444,8 @@ window.whip.onFeed(items=>{
 });
 const bot={x:0,y:0,hx:0,hy:0,vx:0,vy:0,ang:0,angVel:0,squash:1,flash:0,hits:0,rigid:0,
            burn:0,bubble:"",bubbleUntil:0,
-           // it runs now
-           snareUntil:0, struggle:0, wx:0, wy:0, wanderT:0, panic:0, caught:0, escapes:0};
-const SNARE_MS = 2600, TETHER = 300;   // how far out it is held once caught
+           // it runs; landing a hit on it is the whole game
+           wx:0, wy:0, wanderT:0, panic:0, swings:0, landed:0, streak:0, best:0};
 const fx=[];                      // every projectile / particle / effect
 function muzzle(){                      // where a projectile is born
   const id=W_().id;
@@ -563,7 +562,11 @@ let rope=null, strikeAt=0, sFrom=null, sMid=null, sTo=null, lastCrack=0;
 const segLen=i=>R.segLen*(1-(i/(R.segments-1))*(1-R.taper));
 function ropeSpawn(){ rope=[]; for(let i=0;i<R.segments;i++){ const t=i/(R.segments-1);
   const x=mx+t*430, y=my-Math.sin(t*Math.PI*.7)*260; rope.push({x,y,px:x,py:y}); } }
-function ropeStrike(){ const a=Math.atan2(bot.y-my,bot.x-mx);
+function ropeStrike(){
+  if(bot.swings && !bot.landedThisSwing){ bot.streak=0; }   // that one missed
+  bot.swings++; bot.landedThisSwing=0;
+  { const sx=sessions[sel]; if(sx) window.whip.score({sessionId:sx.id, swings:1}); }
+  const a=Math.atan2(bot.y-my,bot.x-mx);
   sFrom={x:rope[0].x,y:rope[0].y};
   sMid={x:mx-Math.cos(a)*230,y:my-Math.sin(a)*230};
   sTo={x:mx+Math.cos(a)*380,y:my+Math.sin(a)*380}; strikeAt=performance.now(); }
@@ -589,14 +592,13 @@ function ropeHit(){ const t=performance.now(); if(t-lastCrack<200) return;
       if(inBox(x,y)){ lastCrack=t;
         const horiz=Math.abs(Math.cos(Math.atan2(dy,dx)));   // sideways crack == bright
         sfx("whip",clamp(sp/42,.3,1),(x/W-.5)*1.6,horiz);
-        const held = bot.snareUntil > t;
-        damage(x,y,dx,dy,clamp(sp/40,.4,1)*(held?1.7:1),{col:"#e8ded0"});
-        if(!held && strikeAt && sp > R.hitSpeed*2.2){        // only a deliberate strike catches
-          bot.snareUntil = t + SNARE_MS; bot.struggle = 0; bot.caught++;
-          bot.heldFrom = t;
-          { const sx=sessions[sel]; if(sx) window.whip.score({sessionId:sx.id, caught:1}); }
-          sfx("clash",.7,(x/W-.5)*1.4); shake=Math.max(shake,9);
-        } else if(held){ bot.snareUntil += 420; }            // hits buy you more time
+        damage(x,y,dx,dy,clamp(sp/40,.4,1),{col:"#e8ded0"});
+        if(strikeAt && !bot.landedThisSwing){         // only a real swing can land
+          bot.landedThisSwing=1; bot.landed++; bot.streak++;
+          bot.best=Math.max(bot.best,bot.streak);
+          const sx=sessions[sel];
+          if(sx) window.whip.score({sessionId:sx.id, landed:1, streak:bot.streak});
+        }
         return; } } } }
 
 // Launch velocity that puts the object on (tx,ty) after T frames of gravity.
@@ -870,21 +872,6 @@ const t2=()=>performance.now()*.06;
 // ── the bot ────────────────────────────────────────────────────────────────
 function drawBot(){
   const t=performance.now();
-  if(bot.snareUntil > t && rope){                 // the line that is holding it
-    const h=rope[0], k=1-bot.struggle;
-    ctx.save();
-    ctx.strokeStyle="rgba(120,84,48,.9)"; ctx.lineWidth=3.2; ctx.lineCap="round";
-    ctx.beginPath(); ctx.moveTo(h.x,h.y);
-    const mx2=(h.x+bot.x)/2, my2=(h.y+bot.y)/2 + 26*bot.struggle;   // sags as it tires
-    ctx.quadraticCurveTo(mx2,my2,bot.x,bot.y); ctx.stroke();
-    ctx.strokeStyle="rgba(210,170,120,.45)"; ctx.lineWidth=1.2; ctx.stroke();
-    const bw=92, bx=bot.x-bw/2, by=bot.y-BOX_HH()-26;   // how long you can hold it
-    ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(bx-1,by-1,bw+2,7);
-    ctx.fillStyle = k<.3 ? "#e0502f" : "#c9a227"; ctx.fillRect(bx,by,bw*k,5);
-    ctx.font="600 10px ui-monospace,Menlo,monospace"; ctx.textAlign="center";
-    ctx.fillStyle="#c9a227"; ctx.fillText("SNARED", bot.x, by-7);
-    ctx.restore();
-  }
   const jitter = bot.panic*0.9;
   ctx.save(); ctx.translate(bot.x + rand(-jitter,jitter), bot.y + rand(-jitter,jitter));
   ctx.rotate(bot.rigid>t?0:bot.ang);
@@ -1056,16 +1043,17 @@ function drawWeaponBar(){
   ctx.fillStyle="rgba(240,177,50,.55)";
   ctx.fillText(sess ? sess.name.toUpperCase() : "NO TARGET", 40+SAFE.l, H-24-SAFE.b);
   ctx.font="600 11px ui-monospace,Menlo,monospace";
-  ctx.fillStyle = bot.snareUntil>t ? "#c9a227" : "rgba(240,177,50,.45)";
-  ctx.fillText(bot.snareUntil>t ? "HELD" : (bot.panic>.35 ? "FLEEING" : "ROAMING"),
-               40+SAFE.l, H-8-SAFE.b);
+  ctx.fillStyle = bot.panic>.35 ? "#e0502f" : "rgba(240,177,50,.45)";
+  ctx.fillText(bot.panic>.35 ? "FLEEING" : "ROAMING", 40+SAFE.l, H-8-SAFE.b);
   ctx.textAlign="center";
   ctx.fillStyle="rgba(240,177,50,.5)";
-  { const sc=(sessions[sel]&&sessions[sel].score)||{caught:0,escapes:0,bestHoldMs:0};
-    const tot=`caught ${sc.caught+bot.caught}   ·   got away ${sc.escapes+bot.escapes}`;
-    const best=Math.max(sc.bestHoldMs||0, bot.snareUntil>t&&bot.heldFrom ? t-bot.heldFrom : 0);
-    ctx.fillText(tot + (best>400 ? `   ·   best hold ${(best/1000).toFixed(1)}s` : ""),
-                 W/2, H-28-SAFE.b); }
+  { const sc=(sessions[sel]&&sessions[sel].score)||{landed:0,swings:0,best:0};
+    const L=sc.landed+bot.landed, SW=sc.swings+bot.swings;
+    const pct = SW ? Math.round(L/SW*100) : 0;
+    ctx.fillText(`landed ${L}/${SW}  ·  ${pct}%` +
+      (bot.streak>1?`  ·  streak ${bot.streak}`:"") +
+      (Math.max(sc.best||0,bot.best)>1?`  ·  best ${Math.max(sc.best||0,bot.best)}`:""),
+      W/2, H-28-SAFE.b); }
   ctx.fillStyle="rgba(240,177,50,.18)"; ctx.fillRect(40+SAFE.l,H-84-SAFE.b,190,4);
   ctx.fillStyle = hp<30 ? "#e0502f" : AMBER; ctx.fillRect(40,H-84-SAFE.b,190*hp/100,4);
 
@@ -1079,7 +1067,7 @@ function drawWeaponBar(){
   }
   ctx.textAlign="center"; ctx.font="600 11px ui-monospace,Menlo,monospace";
   ctx.fillStyle="rgba(255,255,255,.3)";
-  ctx.fillText("it runs \u2014 crack the whip across it to snare it  \u00b7  1-6 weapon  \u00b7  esc leave", W/2, H-10-SAFE.b);
+  ctx.fillText("it runs \u2014 land the whip on it  \u00b7  1-6 weapon  \u00b7  esc leave", W/2, H-10-SAFE.b);
 }
 
 // ── loop ───────────────────────────────────────────────────────────────────
@@ -1152,29 +1140,8 @@ function frame(){
   const hpF = clamp(1 - (bot.hits*0.035), 0.35, 1);        // hurt things are slower
   const L2=SAFE.l+BOX_HW(), R2=W-SAFE.r-BOX_HW(), T2=SAFE.t+BOX_HH(), B2=H-SAFE.b-BOX_HH();
 
-  if(a.snareUntil > now2){                                  // SNARED: reeled in, thrashing
-    const h = rope ? rope[0] : {x:mx,y:my};
-    const dx=h.x-a.x, dy=h.y-a.y, d=Math.hypot(dx,dy)||1;
-    if(d > TETHER){ a.vx += dx/d*2.0; a.vy += dy/d*2.0; }   // the tether bites
-    a.vx += rand(-3.4,3.4); a.vy += rand(-3.4,3.4);         // struggling
-    a.angVel += rand(-.05,.05);
-    // time-based, not per-frame: at 120Hz the per-frame version broke free
-    // twice as fast as at 60Hz.
-    a.struggle = clamp(1 - (a.snareUntil - now2)/SNARE_MS, 0, 1);
-    a.panic = 1;
-    if(a.struggle >= 1){                                     // it gets loose
-      a.snareUntil=0; a.struggle=0; a.escapes++;
-      { const sx=sessions[sel];
-        if(sx) window.whip.score({sessionId:sx.id, escapes:1,
-                                  heldMs: a.heldFrom ? now2-a.heldFrom : 0}); }
-      const hh = rope ? rope[0] : {x:mx,y:my};
-      const ea=Math.atan2(a.y-hh.y, a.x-hh.x);
-      a.vx += Math.cos(ea)*19; a.vy += Math.sin(ea)*19;
-      sfx("swing",.8,(a.x/W-.5)*1.4);
-      for(let i=0;i<22;i++){ const q=rand(0,7),sp=rand(2,8);
-        fx.push({k:"spark",x:a.x,y:a.y,vx:Math.cos(q)*sp,vy:Math.sin(q)*sp,life:1,d:.03,col:ORANGE}); }
-    }
-  } else {
+  {
+
     const dx=a.x-mx, dy=a.y-my, d=Math.hypot(dx,dy)||1;
     const threat = clamp(1 - d/380, 0, 1);                  // bolts when you close in
     a.panic += (threat - a.panic)*0.12;
@@ -1226,19 +1193,11 @@ addEventListener("mousedown", e=>{
 });
 addEventListener("mouseup", ()=>{ down=false; });
 addEventListener("contextmenu", e=>e.preventDefault());
-function flushHold(){            // a hold you never lose should still count
-  const t=performance.now();
-  if(bot.snareUntil>t && bot.heldFrom){
-    const sx=sessions[sel];
-    if(sx) window.whip.score({sessionId:sx.id, heldMs:t-bot.heldFrom});
-    bot.heldFrom=0;
-  }
-}
-addEventListener("auxclick", e=>{ if(e.button===1){ flushHold(); rope=null; window.whip.dismiss(); } });
+addEventListener("auxclick", e=>{ if(e.button===1){ rope=null; window.whip.dismiss(); } });
 window.whip.onAnchor(r=>{ if(!rope||!r) return;
   bot.hx=clamp(r.x+r.w/2,BOX_HW()+SAFE.l,W-BOX_HW()-SAFE.r);
   bot.hy=clamp(r.y+r.h/2,BOX_HH()+SAFE.t,H-BOX_HH()-SAFE.b); });
-window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } flushHold(); selectWeapon(parseInt(k,10)-1); });
+window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } selectWeapon(parseInt(k,10)-1); });
 window.whip.onShow(p=>{
   sessions=(p&&p.sessions)||[];
   sel=Math.max(0, sessions.findIndex(s=>s.attached));
@@ -1251,7 +1210,7 @@ window.whip.onShow(p=>{
   if(p&&p.cursor){ mx=p.cursor.x; my=p.cursor.y; }
   bot.hx=W/2; bot.hy=(SAFE.t+H-SAFE.b)/2; bot.x=bot.hx; bot.y=bot.hy;
   bot.wx=bot.hx; bot.wy=bot.hy; bot.wanderT=0;
-  bot.snareUntil=0; bot.struggle=0; bot.panic=0; bot.caught=0; bot.escapes=0; bot.heldFrom=0;
+  bot.panic=0; bot.swings=0; bot.landed=0; bot.streak=0; bot.best=0; bot.landedThisSwing=0;
   bot.vx=bot.vy=bot.ang=bot.angVel=0; bot.squash=1; bot.flash=0; bot.hits=0;
   bot.rigid=0; bot.burn=0; bot.bubble=""; fx.length=0; shake=0; flashA=0;
   strikeAt=0; lastCrack=0; casting=null; saberOn=0; saberTipPrev=null; ropeSpawn();
