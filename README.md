@@ -77,22 +77,29 @@ attached — or at whichever session is mid-turn if you haven't attached one. Th
 chips along the top show every live session with a green dot while it's working;
 click to retarget. Then `1`–`6` to switch weapon, `R` to reload, `Esc` to leave.
 
-| | weapon | |
+**Each weapon is one steer.** Picking it up is choosing what you mean:
+
+| | weapon | what it tells the session |
 |---|---|---|
-| `1` | **Whip** | Verlet rope, real crack samples pitched by lash speed |
-| `2` | **Lightsaber** | melee — swing it through the target |
-| `3` | **AK-47** | aims where you point, 30 rounds, brass ejects |
-| `4` | **Flamethrower** | hold to burn; the target keeps burning |
-| `5` | **Avada Kedavra** | fires on the last syllable, not before |
-| `6` | **Molotov** | thrown on real ballistics, shatters into a fire pool |
+| `1` | **Whip** | *You have enough to act on — move to the next step.* |
+| `2` | **Lightsaber** | *Cut the scope. Do the smallest thing that actually works.* |
+| `3` | **AK-47** | *Stop weighing alternatives and commit to one approach.* |
+| `4` | **Flamethrower** | *The current approach isn't working. Try a different one.* |
+| `5` | **Avada Kedavra** | *Abandon this task entirely — it's the wrong thing to be doing.* |
+| `6` | **Molotov** | *Throw away what you've built here and start clean.* |
 
-Each weapon has its own slogan, and a hit shows it on screen.
+Verlet rope, real crack samples pitched by lash speed; melee blade you swing;
+30 rounds with ejecting brass; sustained fire that leaves the target burning; a
+bolt that leaves the wand on the last syllable; a bottle thrown on real
+ballistics.
 
-**Weapon slogans are not instructions.** They're canned flavour text the game
-picks at random, so the hook tags them `src:game` and tells the receiving session
-exactly that: the user didn't write this, don't change course, don't skip reading
-or verification. Only words you actually type get `src:user` and are presented as
-yours. See [Don't put words in its mouth](#dont-put-words-in-its-mouth).
+A hit also carries one thing the text doesn't: **you are demonstrably at the
+keyboard.** Agents defer questions to the end of a turn because interrupting you
+is expensive — so a hit tells the session to ask you *now* if a decision would
+change what it builds, instead of guessing and flagging it later.
+
+What a hit never says is *hurry*. See
+[Don't put words in its mouth](#dont-put-words-in-its-mouth).
 
 <p align="center">
   <img src="docs/saber.png" width="49%">
@@ -144,8 +151,12 @@ measuring a mockup pixel by pixel, exactly the work "stop checking" discourages.
 So:
 
 - Words you type are attributed to you, with no pressure language attached.
-- Game slogans are labelled as a joke overlay firing, explicitly not an
-  instruction, with a note not to skip verification because of it.
+- Each weapon carries exactly one intent, so choosing it is choosing what you
+  mean — not a slogan drawn at random. The payload says so, adds that it implies
+  nothing about speed or rigour, and tells the session to keep reading and
+  verifying.
+- It also says you're watching live, which is the genuinely useful part: it
+  makes asking you cheap at the one moment you're there to answer.
 - Nothing tells a session to stop reading. That instruction was never a good
   idea and it's gone.
 

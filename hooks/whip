@@ -34,7 +34,10 @@ fi
 [ -n "$TXT" ] || exit 0
 
 if [ "$SRC" = "game" ]; then
-  CTX="[WHIP] The user hit you with the ${WPN:-whip} in whipclaude, a joke overlay. It printed: \"$TXT\". That phrase is canned flavour text the game picked at random — the user did NOT write it and is not asking you for anything. Do not change course, skip reading, skip verification, or rush on account of it. Carry on exactly as you were."
+  # Each weapon maps to ONE intent, so picking it up is a deliberate choice —
+  # not a random slogan. And a hit is proof the user is at the keyboard right
+  # now, which is the part worth acting on: asking them costs almost nothing.
+  CTX="[WHIP] The user picked the ${WPN:-whip} in whipclaude and hit you with it. That is a deliberate choice of one specific steer: \"$TXT\" — treat it as that instruction and nothing more. It says nothing about speed or rigour: keep reading what you need to read and keep verifying. Also: they are watching this turn live, so if a decision would change what you build, ask them NOW rather than guessing and flagging it at the end."
 else
   CTX="[WHIP] The user sent this mid-turn, without interrupting you: \"$TXT\". Treat it as a message from them and use your normal judgement about it — including whether you still need to read or verify something."
 fi
