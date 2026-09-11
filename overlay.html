@@ -972,10 +972,13 @@ function wrapTo(txt, maxw){
 // What the session is actually SAYING and DOING, live. Tool names alone tell
 // you nothing you did not already know; the argument and the prose do.
 function drawFeed(){
-  if(!feed.length) return;
   const t=performance.now();
+  if(!sessions.length) return;
   const PW=Math.min(560, W*0.38), x=SAFE.l+26, bottom=H-SAFE.b-110;
   const rows=[];
+  if(!feed.length) rows.push({txt: (sessions[sel]&&sessions[sel].busy)
+      ? "working\u2026" : "nothing yet \u2014 give this session something to do",
+    c:"rgba(255,255,255,.35)", t:t, say:1});
   for(let i=feed.length-1; i>=0 && rows.length<16; i--){
     const e=feed[i];
     if(e.kind==="whip"){ rows.push({txt:"\u2014 WHIP LANDED \u2014", c:"#D97757", b:1, t:e.t}); continue; }
@@ -997,8 +1000,10 @@ function drawFeed(){
   ctx.beginPath(); ctx.roundRect(x-12, top-22, PW, rows.length*lh+34, 8); ctx.fill();
   ctx.textAlign="left"; ctx.textBaseline="middle";
   ctx.font="600 10px ui-monospace,Menlo,monospace"; ctx.fillStyle="rgba(240,177,50,.5)";
-  const who=sessions[sel]?sessions[sel].name:"";
-  ctx.fillText("LIVE \u00b7 "+who.toUpperCase(), x, top-11);
+  const ss=sessions[sel]||{};
+  const who=(ss.name||"").toUpperCase();
+  ctx.fillStyle = ss.busy ? "#5fd27a" : "rgba(240,177,50,.5)";
+  ctx.fillText((ss.busy?"\u25cf LIVE \u00b7 ":"\u25cb IDLE \u00b7 ")+who, x, top-11);
   rows.reverse().forEach((r,k)=>{
     ctx.globalAlpha=clamp(1-(t-r.t)/70000,0.3,1);
     ctx.font = r.b ? "700 11px ui-monospace,Menlo,monospace"

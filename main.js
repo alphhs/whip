@@ -210,6 +210,37 @@ let feed = null;
 function stopFeed() {
   if (feed) { try { fs.unwatchFile(feed.path); } catch {} feed = null; }
 }
+function parseFeed(chunk) {
+  const out = [];
+  for (const line of chunk.split('\n')) {
+    if (!line.trim()) continue;
+    let d; try { d = JSON.parse(line); } catch { continue; }
+    const a = d.attachment || {};
+    if (a.type === 'hook_additional_context' && JSON.stringify(a).includes('[WHIP]')) {
+      out.push({ kind: 'whip' }); continue;
+    }
+    if (d.type === 'assistant') {
+      const c = (d.message || {}).content;
+      if (Array.isArray(c)) for (const b of c) {
+        if (b && b.type === 'tool_use') {
+          const i = b.input || {};
+          const subj = i.command || i.file_path || i.pattern || i.url ||
+                       i.path || i.description || i.prompt || '';
+          out.push({ kind: 'tool', name: b.name,
+                     subj: String(subj).replace(/\s+/g, ' ').slice(0, 150) });
+        } else if (b && b.type === 'text' && b.text && b.text.trim()) {
+          const plain = b.text
+            .replace(/```[\s\S]*?```/g, ' [code] ')     // code fences are noise here
+            .replace(/\*\*|`|^#+\s*/gm, '')
+            .replace(/\s+/g, ' ').trim();
+          if (plain) out.push({ kind: 'say', text: plain.slice(0, 300) });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function startFeed(sess) {
   stopFeed();
   const tp = sess && sess.transcript;
@@ -217,6 +248,15 @@ function startFeed(sess) {
   let offset = 0;
   try { offset = fs.statSync(tp).size; } catch { return; }   // only what happens NEXT
   feed = { path: tp, offset };
+  try {                                   // seed from recent history
+    const back = Math.min(offset, 220000);
+    const fd = fs.openSync(tp, 'r');
+    const buf = Buffer.alloc(back);
+    fs.readSync(fd, buf, 0, back, offset - back);
+    fs.closeSync(fd);
+    const seeded = parseFeed(buf.toString('utf8')).slice(-8);
+    if (seeded.length && overlay) overlay.webContents.send('feed', seeded.map(x => ({...x, old: 1})));
+  } catch {}
   fs.watchFile(tp, { interval: 260 }, () => {
     if (!feed || !overlay || !overlay.isVisible()) return;
     let chunk = '';
@@ -229,30 +269,7 @@ function startFeed(sess) {
       fs.closeSync(fd);
       feed.offset = size; chunk = buf.toString('utf8');
     } catch { return; }
-    const out = [];
-    for (const line of chunk.split('\n')) {
-      if (!line.trim()) continue;
-      let d; try { d = JSON.parse(line); } catch { continue; }
-      const a = d.attachment || {};
-      if (a.type === 'hook_additional_context' && JSON.stringify(a).includes('[WHIP]')) {
-        out.push({ kind: 'whip' }); continue;
-      }
-      if (d.type === 'assistant') {
-        const c = (d.message || {}).content;
-        if (Array.isArray(c)) for (const b of c) {
-          if (b && b.type === 'tool_use') {
-            // the ARGUMENT is the interesting part, not the tool's name
-            const i = b.input || {};
-            const subj = i.command || i.file_path || i.pattern || i.url ||
-                         i.path || i.description || i.prompt || '';
-            out.push({ kind: 'tool', name: b.name,
-                       subj: String(subj).replace(/\s+/g, ' ').slice(0, 150) });
-          } else if (b && b.type === 'text' && b.text && b.text.trim()) {
-            out.push({ kind: 'say', text: b.text.replace(/\s+/g, ' ').trim().slice(0, 300) });
-          }
-        }
-      }
-    }
+    const out = parseFeed(chunk);
     if (out.length) overlay.webContents.send('feed', out);
   });
 }
