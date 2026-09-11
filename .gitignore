@@ -3,7 +3,7 @@ package-lock.json
 
 # Assets are NOT redistributable — each user supplies their own.
 # See assets/README.md for what to drop in here.
-assets/*
-!assets/README.md
+# assets included in this build
+
 sounds/*
 !sounds/README.md

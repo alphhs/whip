@@ -1,62 +1,117 @@
-# whipclaude
+<h1 align="center">whipclaude</h1>
 
-Steer a running Claude Code turn **without interrupting it** — and hit it with a
-lightsaber while you do.
+<p align="center">
+  <b>Steer a running Claude Code turn without interrupting it.</b><br>
+  Then hit it with a lightsaber.
+</p>
 
-Pressing Esc kills the whole turn and Claude restarts. This doesn't. A hook
-injects your message between tool calls, so Claude changes course mid-task and
-keeps everything it had already worked out.
+<p align="center"><img src="docs/hero.png" alt="whipclaude weapons" width="100%"></p>
+
+---
+
+## The point
+
+Press `Esc` and Claude stops. The turn dies, the plan dies, and the next attempt
+re-reads everything it had already worked out.
+
+whipclaude doesn't interrupt. A `PostToolUse` hook slips your message in **between
+tool calls**, so Claude changes course mid-task and keeps everything it had:
+
+```
+● Read(src/api/handler.ts)
+● Read(src/api/router.ts)
+  ⚡ WHIP — "stop reading, just write the fix"
+● Edit(src/api/handler.ts)
+```
+
+No restart. No lost context. It just starts doing the thing you asked.
 
 ## Install
 
 ```bash
-./install.sh          # needs node 18+, jq, python3 (macOS)
-whipclaude start      # then Cmd+Shift+W
+git clone https://github.com/alphhs/whip.git
+cd whip && ./install.sh
 ```
 
-Restart Claude Code afterwards so the hooks load.
+Needs macOS, Node 18+, `jq`, `python3`. Restart Claude Code afterwards so the
+hooks load. `./uninstall.sh` removes everything, including the settings entries.
 
-## Use
+## Use it from a terminal
 
-**From any terminal** — no overlay needed:
+No overlay required — this is the whole feature:
 
 ```bash
-whip -l                 # list live Claude Code sessions
-whip "stop checking, ship it"
-whip -t 2 "go faster"   # steer session #2 specifically
-whip -b "don't run that"  # blocks its next tool call outright
+whip -l                       # list live Claude Code sessions
+whip "stop checking, ship it" # steer one, mid-turn
+whip -t 2 "go faster"         # target session #2 specifically
+whip -b "don't run that"      # deny its next tool call outright
+whip -a "everyone, wrap up"   # all sessions
 ```
 
-Whips are addressed to one session, so several Claude instances never steal each
-other's.
+Whips are addressed to a single `session_id`, so several Claude instances never
+steal each other's.
 
-**Or Cmd+Shift+W** for the overlay: pick a target session from the chips at the
-top, then `1`-`6` for a weapon, `R` to reload, Esc to leave.
+## Or use the whip
 
-| | |
-|---|---|
-| 1 Whip | Verlet rope, cracks on a real strike |
-| 2 Lightsaber | melee — swing it through the target |
-| 3 AK-47 | aims where you point, 30 rounds |
-| 4 Flamethrower | hold to burn |
-| 5 Avada Kedavra | fires when the incantation finishes |
-| 6 Molotov | thrown on real ballistics |
+`Cmd+Shift+W` opens the overlay. Pick a target session from the chips along the
+top, then `1`–`6` to switch weapon, `R` to reload, `Esc` to leave.
 
-Every hit sends that weapon's own message, so the weapon you pick changes what
-Claude actually does.
+| | weapon | |
+|---|---|---|
+| `1` | **Whip** | Verlet rope, real crack samples pitched by lash speed |
+| `2` | **Lightsaber** | melee — swing it through the target |
+| `3` | **AK-47** | aims where you point, 30 rounds, brass ejects |
+| `4` | **Flamethrower** | hold to burn; the target keeps burning |
+| `5` | **Avada Kedavra** | fires on the last syllable, not before |
+| `6` | **Molotov** | thrown on real ballistics, shatters into a fire pool |
+
+Each weapon sends its **own** message, so what you pick changes what Claude does.
+Avada sends *"kill that approach"*; the molotov sends *"scrap it and start clean"*.
+
+<p align="center">
+  <img src="docs/saber.png" width="49%">
+  <img src="docs/flame.png" width="49%">
+</p>
 
 ## How it works
 
-- `hooks/whip` runs on `PostToolUse`, reads `~/.claude/whip/s/<session_id>`, and
-  returns it as `additionalContext` — Claude sees it between tool calls.
-- `hooks/whip-block.sh` runs on `PreToolUse` and can `deny` a single tool call.
-- The overlay is Electron + three.js. Weapons are 3D models aimed by mapping each
-  model's own forward axis onto a world basis pointing at your cursor.
+**The steering** is two hook scripts and a file:
+
+- `hooks/whip` — `PostToolUse`. Reads `~/.claude/whip/s/<session_id>` and returns
+  it as `additionalContext`. Claude sees it between tool calls.
+- `hooks/whip-block.sh` — `PreToolUse`. Returns `permissionDecision: deny` to kill
+  one specific tool call without ending the turn.
+
+A hook that exits `0` is recorded as `hook_success` with empty `content`, and the
+UI renders nothing — so `systemMessage` is invisible by design. That's why the
+message goes through `additionalContext` instead.
+
+**The overlay** is Electron + three.js, composited over a transparent
+always-on-top window:
+
+- Weapons are `.glb` models. Each declares its own forward axis, and aiming maps
+  that basis onto a world basis pointing at your cursor — so one code path aims
+  any model regardless of how it was exported.
+- PBR metal renders black without an environment to reflect, so the scene carries
+  a generated `RoomEnvironment` IBL.
+- Glow and fire draw to a separate additive canvas that **fades instead of
+  clearing**, which is what gives flames, tracers and saber swings real trails.
+- The whip and lightsaber are generated in code — a tapered tube rebuilt from the
+  rope each frame, and a hilt of primitives with an unlit core blade.
 
 ## Assets
 
-None ship with this. Drop your own `.glb` files in `assets/` — see
-`assets/README.md`. The Whip and Lightsaber are generated in code and need
-nothing; every other weapon just renders without a model until you add one.
+Models and audio live in `assets/`. To swap one, drop a `.glb` in and add a row
+to the `MODELS` table in `overlay.html`:
 
-MIT, code only.
+```js
+gun: { file:"assets/ak47.glb", fwd:[1,0,0], up:[0,1,0], len:1.55, aim:true,
+       pos:[0.62,-0.60,0], roll:-0.16, cant:0.10, kick:0.42 },
+```
+
+`fwd` is the model's forward axis **in its own local space** — the barrel, the
+tip, whichever end points at the target. Exporters disagree wildly about this;
+the three models here came out as `+X`, `+Y` and `+Z`. Check yours.
+
+Source code is MIT. The bundled models and audio are not mine to license — see
+[`assets/ATTRIBUTION.md`](assets/ATTRIBUTION.md).
