@@ -157,7 +157,7 @@ ipcMain.on('crack', (_e, payload) => {
     // Tagged src:game so the hook never presents a canned slogan as something
     // the user said. Only words the user actually typed get src:user.
     fs.writeFileSync(path.join(WHIP_DIR, 's', id), JSON.stringify({
-      text: String(msg || 'FASTER'), src: 'game', weapon: String(weapon || 'whip') }));
+      text: String(msg || ''), src: 'game', weapon: String(weapon || 'whip') }));
     // soreness lives with the session, so it survives the overlay closing
     const pf = path.join(WHIP_DIR, 'pet', id);
     let n = 0; try { n = Number(fs.readFileSync(pf,'utf8').split('\t')[0]) || 0; } catch {}
@@ -165,6 +165,11 @@ ipcMain.on('crack', (_e, payload) => {
   } catch (err) {
     console.warn('could not arm whip:', err.message);
   }
+});
+
+ipcMain.handle('presets', () => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'lib', 'presets.json'), 'utf8')); }
+  catch { return {}; }
 });
 
 ipcMain.handle('sounds', () => {

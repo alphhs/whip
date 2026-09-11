@@ -271,17 +271,17 @@ const BOX_HW = () => ICON_SCALE * 12 + 30, BOX_HH = () => ICON_SCALE * 7.5 + 30;
 // mag = rounds in a magazine, res = reserve, rl = reload seconds, rof = ms between shots
 const WEAPONS = [
   { id:"whip",    name:"WHIP",          short:"whip",    col:"#c9a227", mode:"click", mag:Infinity, res:Infinity, rl:0,   rof:260,
-    intent:'You have enough to act on — move to the next step. This is aimed at re-reading things you have ALREADY read, not at stopping an investigation before you have found the cause. If you do not yet know WHY something is happening, this does not apply — keep digging.', banner:'Next step' },
+    preset:"next", banner:'Next step' },
   { id:"saber",   name:"LIGHTSABER",   short:"saber",   col:"#33ddff", mode:"melee", mag:Infinity, res:Infinity, rl:0, rof:130,
-    intent:'Cut the scope. Do the smallest thing that actually works.', banner:'Cut scope' },
+    preset:"scope", banner:'Cut scope' },
   { id:"gun",     name:"AK-47",         short:"ak47",    col:"#dfe3e6", mode:"auto",  mag:30,  res:90,  rl:2.4, rof:95,
-    intent:'Stop weighing alternatives and commit to one approach. Commit to a direction, not to a guess — if you have not established the cause yet, finding it IS the next step.', banner:'Commit' },
+    preset:"commit", banner:'Commit' },
   { id:"flame",   name:"FLAMETHROWER",  short:"flame",   col:"#ff7a18", mode:"hold",  mag:100, res:200, rl:3.0, rof:16,
-    intent:"The current approach isn't working. Try a different one.", banner:'Change approach' },
+    preset:"approach", banner:'Change approach' },
   { id:"avada",   name:"AVADA KEDAVRA", short:"avada",   col:"#2bff6a", mode:"click", mag:1,   res:11,  rl:1.4, rof:900,
-    intent:"Abandon this task entirely — it's the wrong thing to be doing.", banner:'Abandon' },
+    preset:"abandon", banner:'Abandon' },
   { id:"molotov", name:"MOLOTOV",       short:"molly",   col:"#ff4a1a", mode:"click", mag:1,   res:5,   rl:1.0, rof:700,
-    intent:"Throw away what you've built here and start clean.", banner:'Start over' },
+    preset:"restart", banner:'Start over' },
 ];
 const ammo = WEAPONS.map(w => ({ mag:w.mag, res:w.res }));
 let reloadUntil = 0, lastShot = 0, hudUntil = 0;
@@ -318,6 +318,11 @@ const W_ = () => WEAPONS[weapon];
 const IMG={};
 for(const n of ["ak47"]){ const i=new Image(); i.onload=()=>{i.ready=1;}; i.src="assets/"+n+".png"; IMG[n]=i; }
 const VO_AVADA=new Audio("assets/avada.mp3"); VO_AVADA.preload="auto";
+// Weapon intents live in lib/presets.json, the same file the CLI reads, so
+// editing one changes both.
+let PRESETS={};
+window.whip.presets().then(p=>{ PRESETS=p||{}; }).catch(()=>{});
+const intentOf = w => (PRESETS[w.preset]||{}).text || w.banner;
 // measured from the clip: 0.76s of silence up front, incantation ends at 4.32s
 const VO_START=0.72, VO_CAST=3.62;
 function say(a,from){ try{ const n=a.cloneNode(); n.volume=1;
@@ -443,7 +448,7 @@ function damage(x,y,vx,vy,power,opts={}){
     const msg=W_().banner;
     bot.bubble=msg; bot.bubbleUntil=t+1600;
     const s=sessions[sel];
-    if(s) window.whip.crack(s.id, W_().intent, W_().name);
+    if(s) window.whip.crack(s.id, intentOf(W_()), W_().name);
   }
 }
 const inBox=(x,y)=>Math.abs(x-bot.x)<=BOX_HW() && Math.abs(y-bot.y)<=BOX_HH();

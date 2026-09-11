@@ -10,6 +10,8 @@
 #   whip -t <target> "msg"     whip one specific session, just this once
 #   whip -a "msg"              whip every live session
 #   whip -b "msg"              block that session's NEXT tool call instead
+#   whip <preset>              send a named intervention (whip presets)
+#   whip presets               list them
 #   whip status | clear
 #
 # <target> is a name, a list number, or the start of a session id.
@@ -17,6 +19,8 @@ set -euo pipefail
 DIR="$HOME/.claude/whip"; REG="$DIR/reg"; ATT="$DIR/attached"
 mkdir -p "$REG" "$DIR/s" "$DIR/b"
 NOW=$(date +%s)
+PRESETS="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")/.." && pwd)/lib/presets.json"
+[ -f "$PRESETS" ] || PRESETS="$HOME/.claude/whip/presets.json"
 
 # NOTE: fields are separated by US (0x1f), not tab. Tab counts as IFS
 # whitespace, so bash collapses runs of it and an empty field (an unnamed
@@ -86,6 +90,10 @@ case "${1-ls}" in
     jq --arg n "$lbl" '.name=$n' "$REG/$id.json" > "$tmp" && mv "$tmp" "$REG/$id.json" \
       || { rm -f "$tmp"; echo "could not write name"; exit 1; }
     echo "named ${id:0:8} -> $lbl"; exit 0 ;;
+  presets)
+    jq -r 'to_entries[] | "  \(.key|.+"            "|.[0:11])  \(.value.label)"' "$PRESETS"
+    echo; echo "  whip cause          # or any of the above"
+    exit 0 ;;
   status)
     [ -f "$ATT" ] && echo "attached: $(label "$(cat "$ATT")")" || echo "attached: (none)"
     n=0; for f in "$DIR"/s/* "$DIR"/b/*; do [ -e "$f" ] || continue
@@ -107,7 +115,13 @@ while [ $# -gt 0 ]; do
 done
 
 MSG="${*:-}"
-[ -n "$MSG" ] || MSG="FASTER"
+KIND="user"; LABEL=""
+if [ $# -eq 1 ] && [ -f "$PRESETS" ] && jq -e --arg k "$1" 'has($k)' "$PRESETS" >/dev/null 2>&1; then
+  LABEL=$(jq -r --arg k "$1" '.[$k].label' "$PRESETS")
+  MSG=$(jq -r --arg k "$1" '.[$k].text'  "$PRESETS")
+  KIND="preset"
+fi
+[ -n "$MSG" ] || { echo "nothing to send (whip presets)"; exit 1; }
 
 ids=()
 if [ "$ALL" = 1 ]; then
@@ -127,6 +141,8 @@ fi
 
 for id in "${ids[@]}"; do
   [ -n "$id" ] || continue
-  jq -n --arg t "$MSG" '{text:$t, src:"user"}' > "$DIR/$MODE/$id"
-  printf '%s -> %s: %s\n' "$([ "$MODE" = b ] && echo 'BLOCK' || echo 'whip')" "$(label "$id")" "$MSG"
+  jq -n --arg t "$MSG" --arg s "$KIND" --arg l "$LABEL" \
+     '{text:$t, src:$s} + (if $l=="" then {} else {preset:$l} end)' > "$DIR/$MODE/$id"
+  printf '%s -> %s: %s\n' "$([ "$MODE" = b ] && echo 'BLOCK' || echo 'whip')" \
+    "$(label "$id")" "${LABEL:-$MSG}"
 done

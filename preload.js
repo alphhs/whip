@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('whip', {
   dismiss: ()    => ipcRenderer.send('dismiss'),
   onShow:  (fn)  => ipcRenderer.on('show', (_e, payload) => fn(payload)),
   sounds:  ()    => ipcRenderer.invoke('sounds'),
+  presets: ()    => ipcRenderer.invoke('presets'),
   onAnchor:(fn)  => ipcRenderer.on('anchor', (_e, r) => fn(r)),
   onKey:   (fn)  => ipcRenderer.on('key', (_e, k) => fn(k)),
 });

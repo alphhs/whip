@@ -1,0 +1,51 @@
+{
+  "next": {
+    "label": "move on",
+    "text": "Move on — you are re-reading things you have already read. This targets redundancy only: if you have not established the CAUSE of something, finding it is the next step, not a detour."
+  },
+  "scope": {
+    "label": "cut scope",
+    "text": "Cut scope to the smallest change that actually works. Add nothing that is not required to make the current thing correct."
+  },
+  "commit": {
+    "label": "commit",
+    "text": "Stop weighing alternatives and carry one approach through. Commit to a direction, not to a guess — if the cause is not established, establishing it IS the direction."
+  },
+  "approach": {
+    "label": "change approach",
+    "text": "The current approach is not working. Stop iterating on it and try a materially different one, rather than another variation of the same idea."
+  },
+  "abandon": {
+    "label": "abandon",
+    "text": "Stop this task entirely. It is the wrong thing to be working on."
+  },
+  "restart": {
+    "label": "start clean",
+    "text": "Throw away what you have built here and start clean."
+  },
+
+  "cause": {
+    "label": "find the cause",
+    "text": "You may be patching a symptom. Before changing anything else, state the MECHANISM: what specifically produces this behaviour, and what evidence shows it. If you cannot say why the current code does what it does, you have not found the bug yet — a fix that works without a known cause is a coincidence."
+  },
+  "instrument": {
+    "label": "instrument it",
+    "text": "Stop reasoning about candidate causes and eliminating them one by one. Capture the actual behaviour — log it, print it, diff it, render it, dump the payload — and work from what you observe instead of what you infer."
+  },
+  "prove": {
+    "label": "prove it",
+    "text": "Separate what you have OBSERVED from what you have INFERRED. For each claim you are about to make, name the command you ran or the thing you saw. Anything you cannot source that way, say plainly that you did not verify it."
+  },
+  "refute": {
+    "label": "refute yourself",
+    "text": "Try to disprove your current conclusion. What would have to be true for it to be wrong, and have you actually checked that? If you cannot refute it, say what specifically rules the alternatives out."
+  },
+  "unknowns": {
+    "label": "surface unknowns",
+    "text": "List what you are currently assuming and do not know. For each, say whether being wrong would change what you build. Ask me about the ones that would — now, while I am here, not as caveats at the end."
+  },
+  "ask": {
+    "label": "ask me",
+    "text": "If any decision would change what you build, ask me now. I am at the keyboard; interrupting me is cheap right now and guessing is not."
+  }
+}

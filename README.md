@@ -58,6 +58,27 @@ whip "stop checking, ship it" # goes to backend from any terminal
 whip detach
 ```
 
+**Named interventions.** These are the ones that actually change output quality —
+they force the gap between *observed* and *inferred* into the open:
+
+| | |
+|---|---|
+| `whip cause` | find the cause |
+| `whip instrument` | instrument it |
+| `whip prove` | prove it |
+| `whip refute` | refute yourself |
+| `whip unknowns` | surface unknowns |
+| `whip ask` | ask me |
+
+```bash
+whip cause        # "state the mechanism before changing anything else"
+whip prove        # "name the command you ran for each claim"
+whip presets      # all 12
+```
+
+The other six are direction rather than rigour: `next` `scope` `commit`
+`approach` `abandon` `restart` — the same six the overlay's weapons fire.
+
 Or target one directly, by name, list number, or id prefix:
 
 ```bash
@@ -77,7 +98,8 @@ attached — or at whichever session is mid-turn if you haven't attached one. Th
 chips along the top show every live session with a green dot while it's working;
 click to retarget. Then `1`–`6` to switch weapon, `R` to reload, `Esc` to leave.
 
-**Each weapon is one steer.** Picking it up is choosing what you mean:
+**Each weapon is one steer**, drawn from the same `lib/presets.json` the CLI
+reads — edit it and both change. Picking a weapon up is choosing what you mean:
 
 | | weapon | what it tells the session |
 |---|---|---|
