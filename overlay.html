@@ -788,7 +788,7 @@ function drawChips(){
   if(!sessions.length){ ctx.fillStyle="rgba(255,255,255,.35)";
     ctx.fillText("no live Claude sessions", x, y+h/2); return; }
   sessions.forEach((s,i)=>{
-    const label=`${s.name}${s.sore?"  ·  "+s.sore:""}`;
+    const label=`${s.attached?"\u2022 ":""}${s.name}${s.sore?"  ·  "+s.sore:""}`;
     const w=ctx.measureText(label).width+26;
     chipRects.push({x,y,w,h,i});
     ctx.fillStyle = i===sel ? "rgba(217,119,87,.9)" : "rgba(30,28,26,.8)";
@@ -796,6 +796,8 @@ function drawChips(){
     ctx.beginPath(); ctx.roundRect(x,y,w,h,8); ctx.fill(); ctx.stroke();
     ctx.fillStyle = i===sel ? "#fff" : "rgba(255,255,255,.65)";
     ctx.fillText(label, x+13, y+h/2);
+    if(s.busy){ ctx.fillStyle = i===sel ? "#eaffea" : "#5fd27a";   // working right now
+      ctx.beginPath(); ctx.arc(x+w-9, y+9, 3.2, 0, 7); ctx.fill(); }
     x+=w+9;
   });
 }
@@ -968,7 +970,11 @@ window.whip.onAnchor(r=>{ if(!rope||!r) return;
   bot.hy=clamp(r.y+r.h/2,BOX_HH()+SAFE.t,H-BOX_HH()-SAFE.b); });
 window.whip.onKey(k=>{ if(k==="r"){ reload(); return; } selectWeapon(parseInt(k,10)-1); });
 window.whip.onShow(p=>{
-  sessions=(p&&p.sessions)||[]; sel=0;
+  sessions=(p&&p.sessions)||[];
+  sel=Math.max(0, sessions.findIndex(s=>s.attached));
+  if(sel===0 && sessions.length && !sessions[0].attached){
+    const b=sessions.findIndex(s=>s.busy); if(b>=0) sel=b;        // else the busy one
+  }
   if(p&&p.safe) SAFE=p.safe;
   if(p&&p.cursor){ mx=p.cursor.x; my=p.cursor.y; }
   bot.hx=W/2; bot.hy=(SAFE.t+H-SAFE.b)/2; bot.x=bot.hx; bot.y=bot.hy;

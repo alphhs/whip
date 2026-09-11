@@ -18,6 +18,7 @@ echo "==> hooks -> $HOOK_DIR"
 mkdir -p "$HOOK_DIR"
 install -m 755 "$APP_DIR/hooks/whip"           "$HOOK_DIR/whip"
 install -m 755 "$APP_DIR/hooks/whip-block.sh"  "$HOOK_DIR/whip-block.sh"
+install -m 755 "$APP_DIR/hooks/whip-register.sh" "$HOOK_DIR/whip-register.sh"
 
 echo "==> cli -> $BIN_DIR"
 mkdir -p "$BIN_DIR"
@@ -39,11 +40,13 @@ def add(event, cmd):
         return False
     lst.append({"matcher": "*", "hooks": [{"type": "command", "command": cmd, "timeout": 5}]})
     return True
-a = add("PostToolUse", "~/.claude/hooks/whip")
-b = add("PreToolUse",  "~/.claude/hooks/whip-block.sh")
+a = add("PostToolUse",  "~/.claude/hooks/whip")
+b = add("PreToolUse",   "~/.claude/hooks/whip-block.sh")
+c = add("SessionStart", "~/.claude/hooks/whip-register.sh")
 p.write_text(json.dumps(d, indent=2))
-print(f"   PostToolUse: {'added' if a else 'already present'}")
-print(f"   PreToolUse:  {'added' if b else 'already present'}")
+print(f"   PostToolUse:  {'added' if a else 'already present'}")
+print(f"   PreToolUse:   {'added' if b else 'already present'}")
+print(f"   SessionStart: {'added' if c else 'already present'}")
 PY
 
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *)
@@ -53,9 +56,10 @@ cat <<'DONE'
 
 installed.
 
+  whip                  list live Claude Code sessions
+  whip attach 1         bind one — later whips go there by default
+  whip "go faster"      steer it mid-turn, without interrupting it
   whipclaude start      launch the overlay, then Cmd+Shift+W
-  whip -l               list live Claude Code sessions
-  whip "go faster"      steer one mid-turn, without interrupting it
 
 Drop your own models in assets/ — see assets/README.md. It runs without them.
 Restart Claude Code (or open /hooks once) so the new hooks load.

@@ -12,21 +12,27 @@ const WHIP_DIR = path.join(os.homedir(), '.claude', 'whip');
 // session in reg/; we aim at the most recently active one, which is the one
 // actually working — i.e. the one you want to whip.
 function liveSessions() {
+  const now = Math.floor(Date.now() / 1000);
+  let attached = null;
+  try { attached = fs.readFileSync(path.join(WHIP_DIR, 'attached'), 'utf8').trim(); } catch {}
   try {
-    return fs.readdirSync(path.join(WHIP_DIR, 'reg')).map(id => {
-      const [cwd, ts, ppid] = fs.readFileSync(path.join(WHIP_DIR,'reg',id),'utf8').trim().split('\t');
-      try { process.kill(Number(ppid), 0); } catch { return null; }   // dead session
-      // Apply the same 10-min-per-step recovery the pet state defines, so a
-      // session that was hammered hours ago reads as healthy again instead of
-      // being permanently at 0 HP from a lifetime tally.
-      let sore = 0;
-      try {
-        const [n, last] = fs.readFileSync(path.join(WHIP_DIR,'pet',id),'utf8').split('\t').map(Number);
-        const elapsed = last ? Math.floor((Date.now()/1000 - last) / 600) : 0;
-        sore = Math.max(0, (n || 0) - elapsed);
-      } catch {}
-      return { id, cwd: cwd || '?', name: (cwd || '?').split('/').pop(), ts: Number(ts) || 0, sore };
-    }).filter(Boolean).sort((a,b) => b.ts - a.ts);
+    return fs.readdirSync(path.join(WHIP_DIR, 'reg'))
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        let r; try { r = JSON.parse(fs.readFileSync(path.join(WHIP_DIR,'reg',f),'utf8')); } catch { return null; }
+        try { process.kill(r.pid, 0); } catch { return null; }        // session is gone
+        // soreness decays one step per 10 min, same rule the pet state defines
+        let sore = 0;
+        try {
+          const [n, last] = fs.readFileSync(path.join(WHIP_DIR,'pet',r.id),'utf8').split('	').map(Number);
+          sore = Math.max(0, (n || 0) - (last ? Math.floor((now - last)/600) : 0));
+        } catch {}
+        const idle = now - (r.seen || 0);
+        return { id:r.id, cwd:r.cwd || '?', name:(r.name || (r.cwd||'?').split('/').pop()),
+                 ts:r.seen || 0, idle, busy: idle < 8, attached: r.id === attached, sore };
+      })
+      .filter(Boolean)
+      .sort((a,b) => (b.attached?1:0)-(a.attached?1:0) || b.ts - a.ts);
   } catch { return []; }
 }
 

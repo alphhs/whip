@@ -1,12 +1,23 @@
 #!/bin/bash
-# PostToolUse: register this session, deliver only ITS whip. Silent by design —
-# the hit is shown in the overlay, not in your terminal.
-DIR="$HOME/.claude/whip"
-PAY=$(cat); SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty')
-[ -n "$SID" ] || exit 0
-mkdir -p "$DIR/reg" "$DIR/s"
-printf '%s\t%s\t%s\n' "$(printf '%s' "$PAY" | jq -r '.cwd // empty')" "$(date +%s)" "$PPID" > "$DIR/reg/$SID"
-F="$DIR/s/$SID"; [ -f "$F" ] || exit 0
-MSG=$(cat "$F" 2>/dev/null); rm -f "$F"; [ -n "$MSG" ] || exit 0
+# PostToolUse — keep this session's registry entry fresh, then deliver only ITS
+# whip. Silent by design: the hit shows in the overlay, not in your terminal.
+DIR="$HOME/.claude/whip"; REG="$DIR/reg"
+PAY=$(cat)
+SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty'); [ -n "$SID" ] || exit 0
+CWD=$(printf '%s' "$PAY" | jq -r '.cwd // empty')
+mkdir -p "$REG" "$DIR/s"
+F="$REG/$SID.json"
+NOW=$(date +%s)
+if [ -f "$F" ]; then
+  tmp=$(mktemp); jq --argjson now "$NOW" --argjson pid "$PPID" --arg cwd "$CWD" \
+    '.seen=$now | .pid=$pid | .cwd=(if $cwd=="" then .cwd else $cwd end)' "$F" > "$tmp" \
+    && mv "$tmp" "$F"
+else
+  jq -n --arg id "$SID" --arg cwd "$CWD" --argjson pid "$PPID" --argjson now "$NOW" \
+    '{id:$id, cwd:$cwd, name:"", pid:$pid, started:$now, seen:$now, busy:false}' > "$F"
+fi
+
+W="$DIR/s/$SID"; [ -f "$W" ] || exit 0
+MSG=$(cat "$W" 2>/dev/null); rm -f "$W"; [ -n "$MSG" ] || exit 0
 jq -n --arg m "$MSG" '{hookSpecificOutput:{hookEventName:"PostToolUse",
   additionalContext:("[WHIP] The user is steering you mid-turn without interrupting. Adjust course NOW and keep going on the same task — do not restart, re-plan from scratch, or re-read what you already read. Their words: \"" + $m + "\"")}}'

@@ -41,20 +41,41 @@ hooks load. `./uninstall.sh` removes everything, including the settings entries.
 No overlay required — this is the whole feature:
 
 ```bash
-whip -l                       # list live Claude Code sessions
-whip "stop checking, ship it" # steer one, mid-turn
-whip -t 2 "go faster"         # target session #2 specifically
-whip -b "don't run that"      # deny its next tool call outright
-whip -a "everyone, wrap up"   # all sessions
+whip                          # list live sessions
+#  1) -          news-platform   ● working   a3cd10ea
+#  2) backend    api             ○ idle 40s  f4cf65e3
 ```
 
+Sessions register the moment they start, so a brand-new one is whippable before
+it has run anything. Green dot means it's mid-turn right now.
+
+**Attach once, then just whip:**
+
+```bash
+whip name backend             # label the session you're sitting in
+whip attach backend           # bind it
+whip "stop checking, ship it" # goes to backend from any terminal
+whip detach
+```
+
+Or target one directly, by name, list number, or id prefix:
+
+```bash
+whip -t backend "go faster"
+whip -b -t 2 "don't run that"   # deny its NEXT tool call outright
+whip -a "everyone, wrap up"     # all sessions
+```
+
+With no attachment, `whip "..."` run *inside* a session targets that session.
 Whips are addressed to a single `session_id`, so several Claude instances never
 steal each other's.
 
 ## Or use the whip
 
-`Cmd+Shift+W` opens the overlay. Pick a target session from the chips along the
-top, then `1`–`6` to switch weapon, `R` to reload, `Esc` to leave.
+`Cmd+Shift+W` opens the overlay. It opens already pointed at whatever you
+attached — or at whichever session is mid-turn if you haven't attached one. The
+chips along the top show every live session with a green dot while it's working;
+click to retarget. Then `1`–`6` to switch weapon, `R` to reload, `Esc` to leave.
 
 | | weapon | |
 |---|---|---|
@@ -81,6 +102,8 @@ Avada sends *"kill that approach"*; the molotov sends *"scrap it and start clean
   it as `additionalContext`. Claude sees it between tool calls.
 - `hooks/whip-block.sh` — `PreToolUse`. Returns `permissionDecision: deny` to kill
   one specific tool call without ending the turn.
+- `hooks/whip-register.sh` — `SessionStart`. Registers the session in
+  `~/.claude/whip/reg/` so it's targetable immediately, and survives renaming.
 
 A hook that exits `0` is recorded as `hook_success` with empty `content`, and the
 UI renders nothing — so `systemMessage` is invisible by design. That's why the
