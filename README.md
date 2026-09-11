@@ -129,7 +129,26 @@ What a hit never says is *hurry*. See
   <img src="docs/flame.png" width="49%">
 </p>
 
-## Did it actually help?
+## Watch it land
+
+The overlay tails the target session's transcript, so the right-hand column
+shows what that session does **as it happens** — reading tools in amber, acting
+tools in white, and a marker on the line where your hit arrived:
+
+```
+                    LIVE
+                    Grep
+                    Read
+          — WHIP LANDED —
+                    Edit
+                    Bash
+    since hit: 4 calls, 25% reading
+```
+
+If a steer that says *stop re-reading* works, that column visibly changes colour
+after the marker. If it doesn't, you can see that too, while it's happening.
+
+## Did it help, over time?
 
 ```bash
 whip report          # this session

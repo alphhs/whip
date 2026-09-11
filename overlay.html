@@ -435,6 +435,13 @@ const pick=a=>a[Math.floor(Math.random()*a.length)];
 let mx=0,my=0, down=false, shake=0, flashCol=null, flashA=0;
 let sessions=[], sel=0;
 let SAFE={t:0,r:0,b:0,l:0};   // menu bar / Dock insets
+// Live feed: what the target session does AFTER you hit it, as it happens.
+const feed=[];
+let feedSince=0;
+window.whip.onFeed(items=>{
+  for(const it of items) feed.push({...it, t:performance.now()});
+  while(feed.length>14) feed.shift();
+});
 const bot={x:0,y:0,hx:0,hy:0,vx:0,vy:0,ang:0,angVel:0,squash:1,flash:0,hits:0,rigid:0,
            burn:0,bubble:"",bubbleUntil:0,
            // it runs now
@@ -542,7 +549,8 @@ function damage(x,y,vx,vy,power,opts={}){
     const msg=W_().banner;
     bot.bubble=msg; bot.bubbleUntil=t+1600;
     const s=sessions[sel];
-    if(s) window.whip.crack(s.id, intentOf(W_()), W_().name);
+    if(s){ window.whip.crack(s.id, intentOf(W_()), W_().name);
+           feedSince=performance.now(); feed.length=0; }
   }
 }
 const inBox=(x,y)=>Math.abs(x-bot.x)<=BOX_HW() && Math.abs(y-bot.y)<=BOX_HH();
@@ -960,6 +968,46 @@ function drawChips(){
     x+=w+9;
   });
 }
+// What the session is doing right now, live. Reading tools in amber, acting
+// tools in white — so a steer that says "stop re-reading" either visibly
+// changes the colour of this column or it does not.
+const READY_TOOLS = {Read:1,Grep:1,Glob:1,WebFetch:1,WebSearch:1,ToolSearch:1,NotebookRead:1};
+function drawFeed(){
+  if(!feed.length) return;
+  const t=performance.now(), x=W-34-SAFE.r, y0=SAFE.t+86;
+  ctx.textAlign="right"; ctx.textBaseline="middle";
+  ctx.font="600 10px ui-monospace,Menlo,monospace";
+  ctx.fillStyle="rgba(240,177,50,.45)";
+  ctx.fillText("LIVE", x, y0-14);
+  let n=0;
+  for(let i=Math.max(0,feed.length-10); i<feed.length; i++){
+    const e=feed[i], y=y0+n*15, age=clamp(1-(t-e.t)/26000,0.25,1);
+    const after = feedSince && e.t>=feedSince;
+    if(e.kind==="whip"){
+      ctx.fillStyle=`rgba(217,119,87,${age})`; ctx.font="700 10px ui-monospace,Menlo,monospace";
+      ctx.fillText("\u2014 WHIP LANDED \u2014", x, y);
+    } else {
+      ctx.font=(after?"700 ":"600 ")+"10px ui-monospace,Menlo,monospace";
+      const lbl = e.kind==="say" ? "(writing)" : e.name;
+      const reading = READY_TOOLS[e.name];
+      ctx.fillStyle = e.kind==="say" ? `rgba(255,255,255,${age*.4})`
+                    : reading ? `rgba(240,177,50,${age})` : `rgba(255,255,255,${age*.9})`;
+      ctx.fillText(lbl, x, y);
+    }
+    n++;
+  }
+  // did the mix change after the hit?
+  if(feedSince){
+    const post=feed.filter(e=>e.kind==="tool" && e.t>=feedSince);
+    if(post.length>=3){
+      const r=post.filter(e=>READY_TOOLS[e.name]).length/post.length;
+      ctx.font="600 10px ui-monospace,Menlo,monospace";
+      ctx.fillStyle="rgba(240,177,50,.6)";
+      ctx.fillText(`since hit: ${post.length} calls, ${Math.round(r*100)}% reading`, x, y0+n*15+8);
+    }
+  }
+}
+
 function drawWeaponBar(){
   const t=performance.now(), AMBER="#f0b132";
   ctx.textBaseline="middle";
@@ -1150,7 +1198,7 @@ function frame(){
   drawBot();
   drawFx();                                   // updates the glow layer + solids
   ctx.drawImage(gc, 0, 0, W, H);              // composite trails/glow on top
-  drawCursor(); drawChips(); drawWeaponBar();
+  drawCursor(); drawChips(); drawFeed(); drawWeaponBar();
   const mdx=mx-lastMX, mdy=my-lastMY; lastMX=mx; lastMY=my;
   swayX += (-mdx*0.55 - swayX*0.16) * 0.55;   // lag behind, then spring home
   swayY += (-mdy*0.55 - swayY*0.16) * 0.55;
@@ -1169,7 +1217,9 @@ addEventListener("wheel", e=>{ scrollAcc+=e.deltaY;
 addEventListener("mousedown", e=>{
   if(e.button!==0) return;
   const hit=chipRects.find(r=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h);
-  if(hit){ sel=hit.i; return; }                 // picking a target isn't an attack
+  if(hit){ sel=hit.i; feed.length=0; feedSince=0;
+    if(sessions[sel]) window.whip.watch(sessions[sel].id);
+    return; }                                     // picking a target isn't an attack
   down=true;
   if(W_().mode==="melee") return;
   if(W_().mode!=="hold" && canFire()){ spend(); fire(); }
@@ -1196,6 +1246,8 @@ window.whip.onShow(p=>{
     const b=sessions.findIndex(s=>s.busy); if(b>=0) sel=b;        // else the busy one
   }
   if(p&&p.safe) SAFE=p.safe;
+  feed.length=0; feedSince=0;
+  if(sessions[sel]) window.whip.watch(sessions[sel].id);
   if(p&&p.cursor){ mx=p.cursor.x; my=p.cursor.y; }
   bot.hx=W/2; bot.hy=(SAFE.t+H-SAFE.b)/2; bot.x=bot.hx; bot.y=bot.hy;
   bot.wx=bot.hx; bot.wy=bot.hy; bot.wanderT=0;

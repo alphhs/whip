@@ -11,14 +11,16 @@ DIR="$HOME/.claude/whip"; REG="$DIR/reg"
 PAY=$(cat)
 SID=$(printf '%s' "$PAY" | jq -r '.session_id // empty'); [ -n "$SID" ] || exit 0
 CWD=$(printf '%s' "$PAY" | jq -r '.cwd // empty')
+TR=$(printf '%s' "$PAY" | jq -r '.transcript_path // empty')
 mkdir -p "$REG" "$DIR/s"
 F="$REG/$SID.json"; NOW=$(date +%s)
 if [ -f "$F" ]; then
-  tmp=$(mktemp); jq --argjson now "$NOW" --argjson pid "$PPID" --arg cwd "$CWD" \
-    '.seen=$now | .pid=$pid | .cwd=(if $cwd=="" then .cwd else $cwd end)' "$F" > "$tmp" && mv "$tmp" "$F"
+  tmp=$(mktemp); jq --argjson now "$NOW" --argjson pid "$PPID" --arg cwd "$CWD" --arg tr "$TR" \
+    '.seen=$now | .pid=$pid | .cwd=(if $cwd=="" then .cwd else $cwd end)
+       | .transcript=(if $tr=="" then (.transcript//"") else $tr end)' "$F" > "$tmp" && mv "$tmp" "$F"
 else
-  jq -n --arg id "$SID" --arg cwd "$CWD" --argjson pid "$PPID" --argjson now "$NOW" \
-    '{id:$id, cwd:$cwd, name:"", pid:$pid, started:$now, seen:$now, busy:false}' > "$F"
+  jq -n --arg id "$SID" --arg cwd "$CWD" --arg tr "$TR" --argjson pid "$PPID" --argjson now "$NOW" \
+    '{id:$id, cwd:$cwd, name:"", pid:$pid, started:$now, seen:$now, busy:false, transcript:$tr}' > "$F"
 fi
 
 W="$DIR/s/$SID"; [ -f "$W" ] || exit 0

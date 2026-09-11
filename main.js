@@ -123,6 +123,7 @@ function cursorInWindow() {
 }
 
 function hideOverlay() {
+  stopFeed();
   if (overlay) overlay.hide();
   globalShortcut.unregister('Escape');             // give the keys straight back
   for (const k of ['1','2','3','4','5','6','7','R']) globalShortcut.unregister(k);
@@ -147,6 +148,8 @@ function toggle() {
     showQueued = true;   // otherwise the overlay shows as a fully invisible window
   }
 }
+
+ipcMain.on('watch', (_e, id) => { startFeed(liveSessions().find(x => x.id === id)); });
 
 ipcMain.on('crack', (_e, payload) => {
   try {
@@ -199,6 +202,52 @@ function readScore(id) {
   try { return JSON.parse(fs.readFileSync(path.join(SCORE_DIR(), id + '.json'), 'utf8')); }
   catch { return { caught: 0, escapes: 0, bestHoldMs: 0 }; }
 }
+// ── live feed ─────────────────────────────────────────────────────────────
+// Tail the target session's transcript so a hit can be watched landing: the
+// tool calls it makes next arrive in the overlay as they happen.
+let feed = null;
+function stopFeed() {
+  if (feed) { try { fs.unwatchFile(feed.path); } catch {} feed = null; }
+}
+function startFeed(sess) {
+  stopFeed();
+  const tp = sess && sess.transcript;
+  if (!tp || !fs.existsSync(tp)) return;
+  let offset = 0;
+  try { offset = fs.statSync(tp).size; } catch { return; }   // only what happens NEXT
+  feed = { path: tp, offset };
+  fs.watchFile(tp, { interval: 260 }, () => {
+    if (!feed || !overlay || !overlay.isVisible()) return;
+    let chunk = '';
+    try {
+      const size = fs.statSync(tp).size;
+      if (size <= feed.offset) { feed.offset = size; return; }
+      const fd = fs.openSync(tp, 'r');
+      const buf = Buffer.alloc(size - feed.offset);
+      fs.readSync(fd, buf, 0, buf.length, feed.offset);
+      fs.closeSync(fd);
+      feed.offset = size; chunk = buf.toString('utf8');
+    } catch { return; }
+    const out = [];
+    for (const line of chunk.split('\n')) {
+      if (!line.trim()) continue;
+      let d; try { d = JSON.parse(line); } catch { continue; }
+      const a = d.attachment || {};
+      if (a.type === 'hook_additional_context' && JSON.stringify(a).includes('[WHIP]')) {
+        out.push({ kind: 'whip' }); continue;
+      }
+      if (d.type === 'assistant') {
+        const c = (d.message || {}).content;
+        if (Array.isArray(c)) for (const b of c) {
+          if (b && b.type === 'tool_use') out.push({ kind: 'tool', name: b.name });
+          else if (b && b.type === 'text' && b.text && b.text.trim()) out.push({ kind: 'say' });
+        }
+      }
+    }
+    if (out.length) overlay.webContents.send('feed', out);
+  });
+}
+
 ipcMain.on('score', (_e, p) => {
   try {
     const { sessionId, caught = 0, escapes = 0, heldMs = 0 } = p || {};
@@ -211,7 +260,7 @@ ipcMain.on('score', (_e, p) => {
   } catch {}
 });
 
-ipcMain.on('dismiss', hideOverlay);
+ipcMain.on('dismiss', () => { stopFeed(); hideOverlay(); });
 
 // No requestSingleInstanceLock(): launchd's one-job-one-process already
 // guarantees a single instance, and a stale Electron lock makes every
