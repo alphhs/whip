@@ -69,7 +69,10 @@ listing() {
     else state="○ idle $((age/60))m"; fi
     sc="$DIR/score/$id.json"
     hunt=""
-    [ -f "$sc" ] && hunt="$(jq -r '"  caught \(.caught) / away \(.escapes)"' "$sc" 2>/dev/null)"
+    [ -f "$sc" ] && hunt="$(jq -r 'if (.swings // 0) > 0
+        then "  " + ((.landed//0)|tostring) + "/" + ((.swings)|tostring)
+             + "  " + (((.landed//0)*100/.swings)|floor|tostring) + "%"
+        else "" end' "$sc" 2>/dev/null)"
     printf '%s %d) %-14s %-22s %b%s  %s\n' "$mark" "$i" \
       "${name:--}" "$(basename "$cwd")" "$state" "$hunt" "${id:0:8}"
   done < <(live)
