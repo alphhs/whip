@@ -435,7 +435,7 @@ let sessions=[], sel=0;
 let SAFE={t:0,r:0,b:0,l:0};   // menu bar / Dock insets
 // Live feed: what the target session does AFTER you hit it, as it happens.
 const feed=[];
-let feedSince=0;
+let feedSince=0, whipBefore={s:'quiet',d:'nothing yet'};
 window.whip.onFeed(items=>{
   for(const it of items) feed.push({...it, t:performance.now()});
   while(feed.length>120) feed.shift();
@@ -547,6 +547,7 @@ function damage(x,y,vx,vy,power,opts={}){
     bot.bubble=msg; bot.bubbleUntil=t+1600;
     const s=sessions[sel];
     if(s){ window.whip.crack(s.id, intentOf(W_()), W_().name);
+           whipBefore=sessionState(feed);        // what state was it in?
            feedSince=performance.now(); }        // mark the moment; never clear the log
   }
 }
@@ -956,6 +957,50 @@ function drawChips(){
 // tools in white — so a steer that says "stop re-reading" either visibly
 // changes the colour of this column or it does not.
 const READY_TOOLS = {Read:1,Grep:1,Glob:1,WebFetch:1,WebSearch:1,ToolSearch:1,NotebookRead:1};
+
+// ── diagnosis ─────────────────────────────────────────────────────────────
+// A log of what a session said is not feedback. What you want to know is
+// whether it was stuck and whether your hit moved it. So classify the state
+// before the hit, classify it after, and say which.
+const KEY = e => e.name + "|" + (e.subj || "").slice(0, 70);
+function sessionState(list){
+  const tools = list.filter(e => e.kind === "tool");
+  if(!tools.length) return { s:"quiet", d:"nothing yet" };
+  const last = tools[tools.length-1];
+  const gap = (performance.now() - last.t) / 1000;
+  if(gap > 45) return { s:"idle", d:`silent for ${gap>90?Math.round(gap/60)+"m":Math.round(gap)+"s"}` };
+  const recent = tools.slice(-7).map(KEY);
+  const rep = recent.filter(k => k === KEY(last)).length;
+  if(rep >= 3) return { s:"looping", d:`same call ${rep}x — ${last.name} ${(last.subj||"").slice(0,34)}` };
+  let reads = 0;
+  for(let i = tools.length-1; i >= 0 && READY_TOOLS[tools[i].name]; i--) reads++;
+  if(reads >= 4) return { s:"stuck", d:`${reads} reads in a row, nothing written` };
+  const wrote = tools.slice(-5).some(e => e.name==="Edit"||e.name==="Write"||e.name==="NotebookEdit");
+  return wrote ? { s:"working", d:"reading and writing" } : { s:"thinking", d:"working, no edits yet" };
+}
+const STUCK = { stuck:1, looping:1, idle:1, quiet:1 };
+
+// verdict, once enough has happened after the hit to judge
+function verdict(){
+  if(!feedSince) return null;
+  const post = feed.filter(e => e.t >= feedSince);
+  const postTools = post.filter(e => e.kind === "tool");
+  const waited = (performance.now() - feedSince) / 1000;
+  if(postTools.length < 2 && waited < 25)
+    return { pending:1, d:`watching\u2026 ${postTools.length} call${postTools.length===1?"":"s"} since` };
+  // silence after a hit is its own answer, not a state change
+  if(!postTools.length)
+    return { bad:1, t:"NO RESPONSE", d:`nothing at all for ${Math.round(waited)}s after the hit` };
+  const after = sessionState(post);
+  const wasStuck = STUCK[whipBefore.s];
+  if(wasStuck && !STUCK[after.s])
+    return { good:1, t:"UNSTUCK", d:`was ${whipBefore.d} \u2014 now ${after.d}` };
+  if(wasStuck && after.s === whipBefore.s)
+    return { bad:1, t:"NO CHANGE", d:`still ${after.d}` };
+  if(!wasStuck)
+    return { meh:1, t:"ALREADY MOVING", d:`it was ${whipBefore.d}` };
+  return { meh:1, t:"CHANGED", d:`${whipBefore.d} \u2192 ${after.d}` };
+}
 function wrapTo(txt, maxw){
   const out=[]; let line="";
   for(const w of txt.split(" ")){
@@ -994,9 +1039,36 @@ function drawFeed(){
   const lh=16, top=bottom-rows.length*lh;
   ctx.save();
   ctx.fillStyle="rgba(8,7,6,.62)";
-  ctx.beginPath(); ctx.roundRect(x-12, top-22, PW, rows.length*lh+34, 8); ctx.fill();
+  ctx.beginPath(); ctx.roundRect(x-12, top-20, PW, rows.length*lh+30, 8); ctx.fill();
   ctx.textAlign="left"; ctx.textBaseline="middle";
   ctx.font="600 10px ui-monospace,Menlo,monospace"; ctx.fillStyle="rgba(240,177,50,.5)";
+  // ── verdict banner: the actual feedback ──────────────────────────────
+  const st = sessionState(feed), vd = verdict();
+  const bh = vd ? 52 : 30;
+  ctx.fillStyle = "rgba(8,7,6,.80)";
+  ctx.beginPath(); ctx.roundRect(x-12, top-22-bh, PW, bh, 8); ctx.fill();
+  ctx.textAlign="left"; ctx.textBaseline="middle";
+  if(vd && !vd.pending){
+    const col = vd.good ? "#5fd27a" : vd.bad ? "#e0502f" : "#f0b132";
+    ctx.font="700 15px ui-sans-serif,-apple-system,system-ui,sans-serif";
+    ctx.fillStyle=col;
+    ctx.fillText((vd.good?"\u2713 ":vd.bad?"\u2717 ":"\u2022 ")+vd.t, x, top-22-bh+17);
+    ctx.font="500 12px ui-sans-serif,-apple-system,system-ui,sans-serif";
+    ctx.fillStyle="rgba(255,255,255,.7)";
+    ctx.fillText(vd.d.slice(0,72), x, top-22-bh+37);
+  } else if(vd && vd.pending){
+    ctx.font="600 13px ui-monospace,Menlo,monospace"; ctx.fillStyle="#f0b132";
+    ctx.fillText("WHIP LANDED", x, top-22-bh+16);
+    ctx.font="500 12px ui-sans-serif,system-ui,sans-serif"; ctx.fillStyle="rgba(255,255,255,.5)";
+    ctx.fillText(vd.d, x, top-22-bh+35);
+  } else {
+    const col = STUCK[st.s] ? "#e0502f" : "#5fd27a";
+    ctx.font="700 13px ui-sans-serif,-apple-system,system-ui,sans-serif"; ctx.fillStyle=col;
+    ctx.fillText(st.s.toUpperCase(), x, top-22-bh+15);
+    ctx.font="500 12px ui-sans-serif,system-ui,sans-serif"; ctx.fillStyle="rgba(255,255,255,.55)";
+    ctx.fillText(st.d.slice(0,70), x+ctx.measureText(st.s.toUpperCase()).width+58, top-22-bh+15);
+  }
+
   const ss=sessions[sel]||{};
   const who=(ss.name||"").toUpperCase();
   ctx.fillStyle = ss.busy ? "#5fd27a" : "rgba(240,177,50,.5)";

@@ -139,24 +139,31 @@ sessions.
 
 Only a real swing counts. The lash trailing across it does not.
 
-## Watch it land
+## Did the whip do anything?
 
-The overlay tails the target session's transcript, so the right-hand column
-shows what that session does **as it happens** — reading tools in amber, acting
-tools in white, and a marker on the line where your hit arrived:
+The overlay watches the target session and tells you, in words, whether your hit
+moved it. Not a log of what it said — a verdict on whether it was stuck and
+whether it stopped being stuck:
 
 ```
-LIVE · CATERING
-The 500s come from ES_AUTH — guest credentials were retired on the test cluster.
-Bash  curl -s -o /dev/null -w '%{http_code}' localhost:4012/mn/s
-— WHIP LANDED —
-Read  /Users/x/catering/server/config.mjs
-Confirmed: config.mjs points at elastic.test which 403s. Pointing it at elastic8.
+✓ UNSTUCK
+was 6 reads in a row, nothing written — now reading and writing
 ```
 
-Its actual prose, its actual commands, its actual file paths — with the marker
-showing where your hit landed. Knowing that you whipped something tells you
-nothing; seeing what it said next tells you everything.
+It classifies the session before the hit (`stuck` on consecutive reads with no
+edits, `looping` on the same call repeated, `idle` on silence, `working` when
+it's reading and writing), then classifies it again after, and reports the
+transition. It will happily tell you the whip did nothing:
+
+```
+✗ NO CHANGE      still 4 reads in a row, nothing written
+✗ NO RESPONSE    nothing at all for 30s after the hit
+• ALREADY MOVING it was reading and writing
+```
+
+Underneath sits the raw stream — the session's actual prose and its actual
+commands, with `— WHIP LANDED —` inline. Useful mainly for a session you *aren't*
+looking at; for the one in front of you, the verdict is the part that matters.
 
 ## Did it help, over time?
 
